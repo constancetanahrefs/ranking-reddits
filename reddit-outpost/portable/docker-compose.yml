@@ -1,0 +1,57 @@
+# Reddit Outpost — app + database + the daily scan.
+#
+#   cp .env.example .env    # then fill in LLM_API_KEY
+#   docker compose up -d
+#   open http://localhost:8000
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: outpost
+      POSTGRES_PASSWORD: outpost
+      POSTGRES_DB: outpost
+    volumes:
+      - outpost_db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U outpost"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg2://outpost:outpost@db:5432/outpost
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # The daily scan. Sleeps until the next 07:00 UTC, scans, then repeats.
+  # Prefer your host's own cron if you already have one — see portable/README.md.
+  cron:
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg2://outpost:outpost@db:5432/outpost
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        while true; do
+          now=$$(date -u +%s)
+          next=$$(date -u -d 'today 07:00' +%s 2>/dev/null || date -u -v7H -v0M -v0S +%s)
+          [ $$next -le $$now ] && next=$$((next + 86400))
+          echo "[cron] sleeping $$((next - now))s until the next 07:00 UTC scan"
+          sleep $$((next - now))
+          python scripts/daily.py || echo "[cron] scan failed"
+        done
+
+volumes:
+  outpost_db:

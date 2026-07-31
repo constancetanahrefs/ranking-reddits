@@ -509,6 +509,13 @@ const RR = (() => {
     return `<span class="px-1.5 py-0.5 rounded text-[11px] font-medium ${tones[tone]||tones.mute}">${esc(txt)}</span>`;
   }
 
+  /* reddit.com/r/x/comments/<id>/<slug>/ is mostly boilerplate — show the part
+     that identifies the thread, and keep the full URL in the title tooltip. */
+  function prettyUrl(u) {
+    if (!u) return '';
+    return String(u).replace(/^https?:\/\/(www\.|old\.|np\.)?/, '').replace(/\/$/, '');
+  }
+
   function cardHtml(c) {
     const kws = (c.keywords || []).slice(0, 3)
       .map(k => `${esc(k.keyword)}<span class="text-muted-foreground"> #${k.position ?? '—'}${k.country ? ' ' + k.country : ''}</span>`)
@@ -532,6 +539,15 @@ const RR = (() => {
       <div class="text-sm font-medium text-foreground leading-snug">
         ${esc(c.title || c.url)}</div>
       ${c.description ? `<div class="text-xs text-muted-foreground mt-1 line-clamp-2">${esc(c.description.slice(0,220))}</div>` : ''}
+      {# The Reddit URL, clickable on its own. stopPropagation keeps the card's
+         own click (which opens the detail panel) from firing too — otherwise you
+         would land on Reddit AND have the panel open behind it. #}
+      <a href="${esc(c.url)}" target="_blank" rel="noopener noreferrer"
+         onclick="event.stopPropagation()"
+         title="Open on Reddit in a new tab — ${esc(c.url)}"
+         class="mt-1.5 inline-flex items-center gap-1 max-w-full text-xs text-muted-foreground
+                hover:text-foreground hover:underline underline-offset-2 break-all">
+        <span class="shrink-0">↗</span><span class="truncate">${esc(prettyUrl(c.url))}</span></a>
       <div class="flex items-center gap-1.5 mt-2 flex-wrap text-[11px]">
         ${(c.sources || []).map(s => badge(s === 'brand' ? 'Brand Radar' : 'Tracked keyword', s === 'brand' ? 'brand' : 'kw')).join('')}
         ${kws ? `<span class="text-muted-foreground">${kws}${more}</span>` : ''}

@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ranking Reddits</title>
+<style>
+  :root {
+    --bg:#f7f7f8; --card:#fff; --ink:#18181b; --muted:#71717a; --line:#e4e4e7;
+    --accent:#ea580c; --new:#f97316; --brand:#2563eb; --kw:#16a34a; --bad:#dc2626;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#09090b; --card:#18181b; --ink:#fafafa; --muted:#a1a1aa; --line:#27272a; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+         font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
+  .wrap { max-width:900px; margin:0 auto; padding:20px 16px 60px; }
+  h1 { font-size:20px; margin:0; }
+  .sub { color:var(--muted); font-size:13px; margin:4px 0 0; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .between { display:flex; justify-content:space-between; gap:12px; align-items:flex-start;
+             flex-wrap:wrap; }
+  button, select, input { font:inherit; color:var(--ink); }
+  .btn { padding:6px 12px; border:1px solid var(--line); background:var(--card);
+         border-radius:6px; cursor:pointer; }
+  .btn:hover { border-color:var(--muted); }
+  .btn.primary { background:var(--ink); color:var(--bg); border-color:var(--ink); }
+  .btn[disabled] { opacity:.55; cursor:default; }
+  .seg { padding:4px 9px; border:1px solid var(--line); background:var(--card);
+         border-radius:6px; cursor:pointer; font-size:12px; }
+  .seg.on { background:var(--ink); color:var(--bg); border-color:var(--ink); }
+  input, select { padding:6px 9px; border:1px solid var(--line); border-radius:6px;
+                  background:var(--card); }
+  .panel { background:var(--card); border:1px solid var(--line); border-radius:10px;
+           padding:12px; }
+  .stats { display:grid; grid-template-columns:repeat(2,1fr); gap:8px; margin:14px 0; }
+  @media (min-width:640px) { .stats { grid-template-columns:repeat(4,1fr); } }
+  .stat .n { font-size:19px; font-weight:600; }
+  .stat .l { font-size:12px; color:var(--muted); border-bottom:1px dotted var(--muted);
+             cursor:help; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px;
+          padding:12px; cursor:pointer; margin-bottom:8px; }
+  .card:hover { border-color:var(--muted); }
+  .card.isnew { border-color:var(--new); }
+  .meta { font-size:12px; color:var(--muted); display:flex; gap:6px; flex-wrap:wrap;
+          margin-bottom:4px; align-items:center; }
+  .title { font-weight:600; line-height:1.35; }
+  .snip { font-size:12.5px; color:var(--muted); margin-top:4px;
+          display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
+          overflow:hidden; }
+  .tag { font-size:11px; padding:2px 6px; border-radius:4px; font-weight:600; }
+  .t-new { background:color-mix(in srgb, var(--new) 15%, transparent); color:var(--new); }
+  .t-brand { background:color-mix(in srgb, var(--brand) 14%, transparent); color:var(--brand); }
+  .t-kw { background:color-mix(in srgb, var(--kw) 14%, transparent); color:var(--kw); }
+  .t-mute { background:color-mix(in srgb, var(--muted) 15%, transparent); color:var(--muted); }
+  .t-bad { background:color-mix(in srgb, var(--bad) 14%, transparent); color:var(--bad); }
+  .banner { padding:9px 12px; border:1px solid var(--line); background:var(--card);
+            border-radius:8px; font-size:13px; margin-bottom:10px; }
+  .banner.err { border-color:var(--bad); color:var(--bad); }
+  dialog { border:1px solid var(--line); border-radius:12px; background:var(--card);
+           color:var(--ink); max-width:760px; width:94%; padding:0; }
+  dialog::backdrop { background:rgba(0,0,0,.6); }
+  .dlg-h { padding:14px 16px; border-bottom:1px solid var(--line);
+           display:flex; justify-content:space-between; gap:10px; align-items:flex-start; }
+  .dlg-b { padding:16px; display:flex; flex-direction:column; gap:14px; }
+  .dlg-f { padding:14px 16px; border-top:1px solid var(--line); display:flex; gap:8px;
+           justify-content:flex-end; flex-wrap:wrap; }
+  .box { background:var(--bg); border-radius:8px; padding:12px; }
+  .body { white-space:pre-wrap; max-height:44vh; overflow:auto; font-size:13px; }
+  textarea { width:100%; font:inherit; color:var(--ink); background:var(--bg);
+             border:1px solid var(--line); border-radius:8px; padding:10px; resize:vertical; }
+  .notecols { display:grid; gap:12px; }
+  @media (min-width:600px) { .notecols { grid-template-columns:1fr 1fr; } }
+  .lbl { font-size:11px; font-weight:700; color:var(--muted); letter-spacing:.04em; }
+  ul { margin:4px 0 0; padding-left:18px; }
+  a { color:inherit; }
+  .hint { position:relative; display:inline-block; }
+  .hint .tip { display:none; position:absolute; bottom:100%; left:0; z-index:10; width:250px;
+               background:var(--card); border:1px solid var(--line); border-radius:8px;
+               padding:9px; font-size:12px; color:var(--ink); font-weight:400;
+               box-shadow:0 6px 18px rgba(0,0,0,.14); margin-bottom:4px; }
+  .hint:hover .tip { display:block; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="between">
+    <div>
+      <h1>Ranking Reddits</h1>
+      <p class="sub">Reddit threads ranking for
+        <strong>{{ cfg.target_domain or "— set TARGET_DOMAIN —" }}</strong>
+        in the top {{ cfg.max_serp_position }}.</p>
+    </div>
+    <div class="row">
+      <button class="btn" onclick="RR.usage()">Check API budget</button>
+      <button class="btn primary" id="scanBtn" onclick="RR.scan()">Scan now</button>
+    </div>
+  </div>
+
+  {% if stats.config_missing %}
+  <div class="banner err" style="margin-top:12px">
+    <strong>Configuration incomplete — scanning is disabled.</strong>
+    <ul>{% for m in stats.config_missing %}<li>{{ m }}</li>{% endfor %}</ul>
+    See <code>docs/AHREFS_SETUP.md</code>.
+  </div>
+  {% endif %}
+
+  <div id="banner" class="banner" style="display:none"></div>
+
+  <div class="stats">
+    <div class="panel stat"><span class="hint"><span class="l">Threads</span>
+      <span class="tip">Unique Reddit threads found. One card per thread even when many
+      keywords surface it — deduped on the canonical /comments/&lt;id&gt; key.</span></span>
+      <div class="n" id="stTotal">{{ stats.total }}</div></div>
+    <div class="panel stat"><span class="hint"><span class="l">New</span>
+      <span class="tip">Discovered by the most recent scan and not opened yet. Opening a
+      card clears its NEW flag.</span></span>
+      <div class="n" id="stNew">{{ stats.new }}</div></div>
+    <div class="panel stat"><span class="hint"><span class="l">Unread</span>
+      <span class="tip">Never opened here. Opening a card marks it read and fetches its
+      title, body and (if enabled) upvote count.</span></span>
+      <div class="n" id="stUnread">{{ stats.unread }}</div></div>
+    <div class="panel stat"><span class="hint"><span class="l">Saved</span>
+      <span class="tip">Cards you exported to your system of record via the Save
+      action.</span></span>
+      <div class="n" id="stSaved">{{ stats.saved }}</div></div>
+  </div>
+
+  <p class="sub" id="lastScan">
+    {% if stats.last_scan %}
+      Last scan {{ stats.last_scan.started_at[:16].replace('T',' ') }} —
+      {{ stats.last_scan.status }}, {{ stats.last_scan.threads_new }} new
+      {% if stats.last_scan.error %}<span style="color:var(--bad)">— {{ stats.last_scan.error[:160] }}</span>{% endif %}
+    {% else %}No scan yet.{% endif %}
+    · <a href="#" onclick="RR.history();return false">scan history</a>
+    {% if not cfg.notes_enabled %} · <em>AI notes off (no LLM_API_KEY)</em>{% endif %}
+    {% if not cfg.votes_enabled %} · <em>upvotes off (no APIFY_API_TOKEN)</em>{% endif %}
+  </p>
+
+  <div class="panel" style="margin:12px 0">
+    <div class="row" style="margin-bottom:8px">
+      <span class="l">SOURCE</span>
+      <span id="fSource" class="row">
+        <button class="seg on" data-v="all">All</button>
+        <button class="seg" data-v="brand">Brand ({{ stats.by_source.brand }})</button>
+        <button class="seg" data-v="keywords">Keywords ({{ stats.by_source.keywords }})</button>
+      </span>
+      <span class="l" style="margin-left:8px">STATE</span>
+      <span id="fState" class="row">
+        <button class="seg on" data-v="all">All</button>
+        <button class="seg" data-v="new">New</button>
+        <button class="seg" data-v="unread">Unread</button>
+        <button class="seg" data-v="read">Read</button>
+        <button class="seg" data-v="saved">Saved</button>
+      </span>
+    </div>
+    <div class="row">
+      <input id="fq" placeholder="Search title / snippet…" oninput="RR.debounced()" style="flex:1;min-width:150px">
+      <select id="fSub" onchange="RR.load()">
+        <option value="">All subreddits</option>
+        {% for s in stats.subreddits %}<option value="{{ s.name }}">r/{{ s.name }} ({{ s.count }})</option>{% endfor %}
+      </select>
+      <select id="fSort" onchange="RR.load()">
+        <option value="newest">Thread date</option>
+        <option value="found">Recently found</option>
+        <option value="position">Best SERP position</option>
+        <option value="upvotes">Upvotes</option>
+        <option value="volume">Keyword volume</option>
+      </select>
+      <span class="hint"><button class="btn" id="enrBtn" onclick="RR.enrich()">Fetch next 10</button>
+        <span class="tip">Fills in title, body and upvotes for the 10 newest un-fetched
+        cards. Bounded on purpose — each card is a real fetch with real cost.</span></span>
+      <button class="btn" onclick="RR.clearNew()">Clear all NEW</button>
+    </div>
+  </div>
+
+  <div id="cards"></div>
+  <div id="empty" class="panel" style="display:none;text-align:center;color:var(--muted)">
+    Nothing here. Run a scan, or loosen the filters.
+  </div>
+</div>
+
+<dialog id="reader">
+  <div class="dlg-h">
+    <div>
+      <div class="sub" id="rdMeta">—</div>
+      <strong id="rdTitle">—</strong>
+    </div>
+    <button class="btn" onclick="document.getElementById('reader').close()">✕</button>
+  </div>
+  <div class="dlg-b">
+    <div class="row" id="rdStats"></div>
+    <div class="sub" id="rdKeywords"></div>
+    <div>
+      <div class="between">
+        <span class="hint"><strong>AI reading notes</strong>
+          <span class="tip">A draft, not a verdict. <b>Brand</b> = what's said about you,
+          sentiment, worth replying. <b>Content</b> = the unanswered question and an
+          article idea. Generated from the fetched thread, never the title alone.</span></span>
+        <button class="btn" id="rdRedraft" onclick="RR.redraft()">Re-draft</button>
+      </div>
+      <div class="box" id="rdNotes" style="margin-top:6px">—</div>
+    </div>
+    <div>
+      <strong>My notes</strong>
+      <textarea id="rdUser" rows="3" onchange="RR.saveNotes()"
+        placeholder="Anything you want to keep with this thread…"></textarea>
+    </div>
+    <div>
+      <span class="hint"><strong>Thread</strong>
+        <span class="tip">Body and comments come from Reddit's Atom feed. Upvotes need a
+        rendered page, so they may be missing — a missing count shows "not fetched",
+        never 0.</span></span>
+      <div class="box body" id="rdBody" style="margin-top:6px">—</div>
+    </div>
+  </div>
+  <div class="dlg-f">
+    <a class="btn" id="rdLink" href="#" target="_blank" rel="noopener">Open on Reddit ↗</a>
+    <button class="btn" id="rdRefetch" onclick="RR.refetch()">Re-fetch</button>
+    <button class="btn primary" id="rdSave" onclick="RR.save()">Save</button>
+  </div>
+</dialog>
+
+<dialog id="hist">
+  <div class="dlg-h"><strong>Scan history</strong>
+    <button class="btn" onclick="document.getElementById('hist').close()">✕</button></div>
+  <div class="dlg-b">
+    <p class="sub">A scan returning zero rows is recorded as a <b>failure</b>, not an
+      empty result — a silent breakage must never look like a quiet month.</p>
+    <div id="histBody"></div>
+  </div>
+</dialog>
+
+<script>
+const RR = (() => {
+  const J = (u) => fetch(u).then(r => r.json());
+  const P = (u, b) => fetch(u, {method:'POST', headers:{'Content-Type':'application/json'},
+                               body: JSON.stringify(b||{})}).then(r => r.json());
+  const esc = (s) => (s ?? '').toString().replace(/[&<>"']/g,
+    c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  let st = {source:'all', state:'all'}, cur = null, timer = null;
+
+  const ago = (iso) => {
+    if (!iso) return 'date unknown';
+    const d = (Date.now() - new Date(iso)) / 86400000;
+    if (d < 1) return 'today';
+    if (d < 30) return Math.round(d) + 'd ago';
+    if (d < 365) return Math.round(d/30) + 'mo ago';
+    return Math.round(d/365) + 'y ago';
+  };
+  const tag = (t, c) => `<span class="tag t-${c}">${esc(t)}</span>`;
+  const banner = (msg, bad) => {
+    const b = document.getElementById('banner');
+    b.style.display = msg ? 'block' : 'none';
+    b.className = 'banner' + (bad ? ' err' : '');
+    b.textContent = msg || '';
+  };
+
+  function cardHtml(c) {
+    const kws = (c.keywords||[]).slice(0,3).map(k =>
+      `${esc(k.keyword)} <span style="opacity:.65">#${k.position ?? '—'}${k.country?' '+k.country:''}</span>`).join(' · ');
+    const more = (c.keywords||[]).length > 3 ? ` +${c.keywords.length-3}` : '';
+    return `<div class="card ${c.is_new?'isnew':''}" onclick="RR.open('${c.id}')">
+      <div class="meta">
+        ${c.is_new ? tag('NEW','new') : ''}
+        <strong>r/${esc(c.subreddit||'?')}</strong>
+        <span>· ${esc(ago(c.posted_at))}</span>
+        ${c.best_position ? `<span>· SERP #${c.best_position}</span>` : ''}
+        ${c.upvotes != null ? `<span>· ▲ ${c.upvotes}</span>` : ''}
+        ${c.num_comments != null ? `<span>· ${c.num_comments} comments</span>` : ''}
+        ${!c.is_read ? '<span>· unread</span>' : ''}
+        ${c.saved_ref ? '· '+tag('saved','mute') : ''}
+      </div>
+      <div class="title">${esc(c.title || c.url)}</div>
+      ${c.description ? `<div class="snip">${esc(c.description.slice(0,220))}</div>` : ''}
+      <div class="meta" style="margin-top:7px">
+        ${(c.sources||[]).map(s => tag(s==='brand'?'Brand':'Keyword', s==='brand'?'brand':'kw')).join(' ')}
+        ${kws ? `<span>${kws}${more}</span>` : ''}
+      </div></div>`;
+  }
+
+  async function load() {
+    const p = new URLSearchParams({source:st.source, state:st.state,
+      subreddit:document.getElementById('fSub').value,
+      sort:document.getElementById('fSort').value,
+      q:document.getElementById('fq').value, limit:200});
+    const d = await J('/api/cards?' + p);
+    document.getElementById('cards').innerHTML = (d.cards||[]).map(cardHtml).join('');
+    document.getElementById('empty').style.display = (d.cards||[]).length ? 'none' : 'block';
+  }
+  const debounced = () => { clearTimeout(timer); timer = setTimeout(load, 300); };
+
+  async function refreshStats() {
+    const s = await J('/api/stats');
+    ({stTotal:s.total, stNew:s.new, stUnread:s.unread, stSaved:s.saved});
+    for (const [k,v] of Object.entries({stTotal:s.total, stNew:s.new,
+                                        stUnread:s.unread, stSaved:s.saved}))
+      document.getElementById(k).textContent = v;
+  }
+
+  function poll(id, done, prog) {
+    const t = setInterval(async () => {
+      const j = await J('/api/job/' + id);
+      if (j.error === 'not_found') { clearInterval(t); done('the job vanished (server restarted?)'); return; }
+      if (prog && j.progress) prog(j.progress);
+      if (j.status === 'completed') { clearInterval(t); done(null, j); }
+      else if (j.status === 'failed') { clearInterval(t); done(j.error || 'failed', j); }
+    }, 2500);
+  }
+
+  function notesHtml(n) {
+    if (!n) return '<span style="color:var(--muted)">No notes yet.</span>';
+    const li = (a) => (a||[]).map(x => `<li>${esc(x)}</li>`).join('');
+    return `<div>${esc(n.summary||'')}</div>
+      <div class="row" style="margin:8px 0">
+        ${n.sentiment ? tag('sentiment: '+n.sentiment, n.sentiment==='negative'?'bad':'mute') : ''}
+        ${n.reply_worthy ? tag('worth replying','brand') : ''}</div>
+      <div class="notecols">
+        <div><div class="lbl">BRAND</div><ul>${li(n.brand)}</ul></div>
+        <div><div class="lbl">CONTENT</div><ul>${li(n.content)}</ul></div></div>`;
+  }
+
+  function render(c) {
+    cur = c.id;
+    document.getElementById('rdTitle').textContent = c.title || c.url;
+    document.getElementById('rdMeta').textContent =
+      `r/${c.subreddit||'?'} · ${c.posted_at ? c.posted_at.slice(0,10) : 'date unknown'}`
+      + (c.author ? ` · u/${c.author}` : '');
+    document.getElementById('rdLink').href = c.url;
+    document.getElementById('rdStats').innerHTML = [
+      c.upvotes != null ? tag('▲ '+c.upvotes+' upvotes','kw') : tag('upvotes not fetched','mute'),
+      c.num_comments != null ? tag(c.num_comments+' comments','mute') : '',
+      c.upvote_ratio != null ? tag(Math.round(c.upvote_ratio*100)+'% upvoted','mute') : '',
+      c.best_position ? tag('best SERP #'+c.best_position,'mute') : '',
+      c.fetch_status === 'failed' ? tag('fetch failed','bad') : '',
+      c.saved_ref ? tag('saved','mute') : '',
+    ].filter(Boolean).join(' ');
+    const kw = c.keywords || [];
+    document.getElementById('rdKeywords').innerHTML = kw.length
+      ? '<b>Ranks for:</b> ' + kw.slice(0,12).map(k =>
+          `${esc(k.keyword)} <span style="opacity:.7">#${k.position ?? '—'}${k.volume?', vol '+k.volume:''}</span>`).join(' · ')
+        + (kw.length > 12 ? ` +${kw.length-12} more` : '') : '';
+    document.getElementById('rdNotes').innerHTML =
+      c.notes_status === 'failed' ? 'Notes failed: ' + esc(c.notes_error) : notesHtml(c.ai_notes);
+    document.getElementById('rdUser').value = c.user_notes || '';
+    document.getElementById('rdBody').textContent = c.body_md || c.description ||
+      (c.fetch_status === 'failed' ? 'Could not read this thread: ' + c.fetch_error
+                                  : 'Not fetched yet.');
+    document.getElementById('rdSave').textContent = c.saved_ref ? 'Saved ✓' : 'Save';
+  }
+
+  async function open(id) {
+    document.getElementById('reader').showModal();
+    render(await J('/api/card/' + id));
+    const r = await P('/api/open', {thread_id:id});
+    if (r.job_id) {
+      document.getElementById('rdBody').textContent = 'Reading the thread…';
+      poll(r.job_id, async () => {
+        if (cur === id) render(await J('/api/card/' + id));
+        load(); refreshStats();
+      }, p => {
+        const b = document.getElementById('rdBody');
+        if (b.textContent.endsWith('…')) b.textContent = p;
+      });
+    }
+    load(); refreshStats();
+  }
+
+  async function refetch() {
+    const b = document.getElementById('rdRefetch');
+    b.disabled = true; b.textContent = 'Fetching…';
+    const r = await P('/api/fetch', {thread_id:cur});
+    poll(r.job_id, async () => {
+      b.disabled = false; b.textContent = 'Re-fetch';
+      if (cur) render(await J('/api/card/' + cur));
+      load();
+    }, p => document.getElementById('rdBody').textContent = p);
+  }
+
+  async function redraft() {
+    const b = document.getElementById('rdRedraft');
+    b.disabled = true; b.textContent = 'Drafting…';
+    document.getElementById('rdNotes').textContent = 'Drafting…';
+    const r = await P('/api/notes/draft', {thread_id:cur});
+    if (r.error) { document.getElementById('rdNotes').textContent = r.error;
+                   b.disabled = false; b.textContent = 'Re-draft'; return; }
+    poll(r.job_id, async () => {
+      b.disabled = false; b.textContent = 'Re-draft';
+      if (cur) render(await J('/api/card/' + cur));
+    });
+  }
+
+  const saveNotes = () => P('/api/notes/save',
+    {thread_id:cur, user_notes:document.getElementById('rdUser').value});
+
+  async function save() {
+    const b = document.getElementById('rdSave');
+    b.disabled = true;
+    const r = await P('/api/save', {thread_id:cur});
+    b.disabled = false; b.textContent = r.error ? 'Failed' : 'Saved ✓';
+    load(); refreshStats();
+  }
+
+  async function scan() {
+    const b = document.getElementById('scanBtn');
+    b.disabled = true; b.textContent = 'Scanning…';
+    banner('Starting…');
+    const r = await P('/api/scan', {trigger:'manual'});
+    if (r.error) {
+      banner((r.missing || [r.error]).join(' · '), true);
+      b.disabled = false; b.textContent = 'Scan now'; return;
+    }
+    poll(r.job_id, (err, j) => {
+      b.disabled = false; b.textContent = 'Scan now';
+      banner(err ? 'Scan failed: ' + err : 'Scan complete — ' + j.progress, !!err);
+      load(); refreshStats();
+    }, p => banner(p));
+  }
+
+  async function enrich() {
+    const b = document.getElementById('enrBtn');
+    b.disabled = true; b.textContent = 'Fetching…';
+    banner('Fetching card details…');
+    const r = await P('/api/enrich', {limit:10});
+    poll(r.job_id, (err, j) => {
+      b.disabled = false; b.textContent = 'Fetch next 10';
+      banner(err ? 'Fetch failed: ' + err : j.progress, !!err);
+      load();
+    }, p => banner(p));
+  }
+
+  const clearNew = async () => { await P('/api/mark', {all_cards:true, clear_new:true});
+                                 load(); refreshStats(); };
+
+  async function usage() {
+    banner('Checking your API unit budget…');
+    const d = await J('/api/ahrefs/usage');
+    banner(d.error ? 'Could not read usage: ' + d.error : JSON.stringify(d).slice(0, 300),
+           !!d.error);
+  }
+
+  async function history() {
+    document.getElementById('hist').showModal();
+    const d = await J('/api/scans');
+    document.getElementById('histBody').innerHTML = (d.scans||[]).length
+      ? d.scans.map(s => `<div class="panel" style="margin-bottom:8px">
+          <div class="between"><span class="sub">${esc((s.started_at||'').slice(0,16).replace('T',' '))} · ${esc(s.trigger)}</span>
+          <span style="color:${s.status==='failed'?'var(--bad)':'var(--kw)'}">${esc(s.status)}</span></div>
+          <div class="sub">${s.keywords_used} keywords · ${s.threads_seen} seen ·
+            <b>${s.threads_new} new</b> · ${s.hits_new} new hits</div>
+          ${s.error ? `<div class="sub" style="color:var(--bad)">${esc(s.error.slice(0,300))}</div>` : ''}
+          ${(s.log||[]).length ? `<div class="sub">${s.log.map(esc).join(' · ')}</div>` : ''}
+        </div>`).join('')
+      : '<p class="sub">No scans yet.</p>';
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    for (const [id, key] of [['fSource','source'], ['fState','state']]) {
+      document.querySelectorAll('#'+id+' .seg').forEach(btn => btn.onclick = () => {
+        document.querySelectorAll('#'+id+' .seg').forEach(x => x.classList.remove('on'));
+        btn.classList.add('on'); st[key] = btn.dataset.v; load();
+      });
+    }
+    const init = {{ initial | tojson }};
+    document.getElementById('cards').innerHTML = init.map(cardHtml).join('');
+    document.getElementById('empty').style.display = init.length ? 'none' : 'block';
+  });
+
+  return {load, debounced, open, refetch, redraft, saveNotes, save, scan, enrich,
+          clearNew, usage, history};
+})();
+</script>
+</body>
+</html>

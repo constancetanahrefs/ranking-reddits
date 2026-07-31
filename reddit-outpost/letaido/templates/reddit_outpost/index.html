@@ -650,6 +650,8 @@ const RO = (() => {
     subPatch: (id) => "{{ url_for('reddit_outpost.api_subreddit_patch', sid='__S__') }}".replace('__S__', id),
     subDel:   (id) => "{{ url_for('reddit_outpost.api_subreddit_delete', sid='__S__') }}".replace('__S__', id),
     profUpd:  (id) => "{{ url_for('reddit_outpost.api_profile_update', pid='__P__') }}".replace('__P__', id),
+    staleName:(id) => "{{ url_for('reddit_outpost.api_stale_name', pid='__P__') }}".replace('__P__', id),
+    renameTxt:(id) => "{{ url_for('reddit_outpost.api_rename_text', pid='__P__') }}".replace('__P__', id),
     profDel:  (id) => "{{ url_for('reddit_outpost.api_profile_delete', pid='__P__') }}".replace('__P__', id),
   };
   const P = {{ (profile.id if profile else '') | tojson }};
@@ -657,7 +659,7 @@ const RO = (() => {
   const FOCUS = {{ focus | tojson }}, AUTOGEN = {{ (autogen == '1') | tojson }};
   let subsCache = {{ subreddits | tojson }};
   let discCands = [], sel = new Set(), timer = null, logPostId = null, profMode = 'edit';
-  let profTopics = [];
+  let profTopics = [], profOrigProduct = '';
 
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c =>
     ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -1230,6 +1232,7 @@ const RO = (() => {
     if (!p) return;
     qs('profTitle').textContent = 'Edit watch profile';
     qs('pName').value = p.name || ''; qs('pProduct').value = p.product_name || '';
+    profOrigProduct = p.product_name || '';
     qs('pUrl').value = p.product_url || ''; qs('pBrief').value = p.brief || '';
     qs('pAudience').value = p.audience || ''; qs('pBrand').value = p.brand_regex || '';
     qs('pFloor').value = p.relevance_floor; qs('pPerSub').value = p.max_posts_per_sub;
@@ -1251,6 +1254,7 @@ const RO = (() => {
     qs('profTitle').textContent = 'New watch profile';
     ['pName','pProduct','pUrl','pBrief','pAudience','pBrand','pSubs']
       .forEach(i => qs(i).value = '');
+    profOrigProduct = '';
     qs('pFloor').value = 0.5; qs('pPerSub').value = 30;
     qs('pLookback').value = 26; qs('pRetention').value = 14;
     qs('pBriefAge').textContent = '';
@@ -1292,6 +1296,26 @@ const RO = (() => {
     if (r.error || r.detail) {
       const e = qs('profErr'); e.classList.remove('hidden');
       e.textContent = r.error || JSON.stringify(r.detail).slice(0, 300); return;
+    }
+
+    // Renamed the product? Scores and drafts are persisted, not recomputed, so
+    // the old name lingers in text the model already wrote. Offer to fix it —
+    // this substitutes the name only; it never re-judges the queue.
+    const newProduct = body.product_name;
+    if (profMode === 'edit' && profOrigProduct && newProduct
+        && profOrigProduct !== newProduct) {
+      const d = await jget(U.staleName(P) + '?old_name='
+                           + encodeURIComponent(profOrigProduct));
+      const n = (d.posts || 0) + (d.drafts || 0);
+      if (n > 0 && confirm(
+            `Renamed "${profOrigProduct}" to "${newProduct}".\n\n`
+            + `${d.posts} scoring note(s) and ${d.drafts} saved draft(s) still say `
+            + `"${profOrigProduct}" — they were written before the rename and are `
+            + `stored, not recalculated.\n\nReplace the name in them now? `
+            + `(Relevance scores are left untouched.)`)) {
+        await jpost(U.renameTxt(P), {old_name: profOrigProduct,
+                                     new_name: newProduct});
+      }
     }
     window.location.search = '?p=' + encodeURIComponent(r.id || P);
   }

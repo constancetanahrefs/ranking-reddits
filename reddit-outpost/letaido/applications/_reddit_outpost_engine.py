@@ -339,6 +339,74 @@ def update_profile(pid: str, patch: dict) -> dict:
         return p.to_dict()
 
 
+def count_stale_product_name(pid: str, old_name: str) -> dict:
+    """How much stored text still names the OLD product?
+
+    Scores, reasoning lines and drafts are PERSISTED, not recomputed — which is
+    correct (you don't want yesterday's queue silently rewriting itself), but it
+    means renaming a product leaves its old name scattered through text the model
+    already wrote.
+    """
+    old = (old_name or "").strip()
+    if not old:
+        return {"posts": 0, "drafts": 0}
+    # Whole-word, same rule the rewrite uses. A plain LIKE over-counts badly:
+    # "multi-agent architecture" contains "agent a" but is not the product name,
+    # so a substring count would offer to fix text that is already correct.
+    like = f"%{old}%"
+    pat = re.compile(rf"\b{re.escape(old)}\b", re.I)
+    with cross_session_scope() as s:
+        posts = sum(
+            1 for (txt,) in s.execute(select(OutpostPost.reasoning).where(
+                OutpostPost.profile_id == pid,
+                OutpostPost.reasoning.ilike(like))).all()
+            if pat.search(txt or ""))
+        drafts = sum(
+            1 for (txt,) in s.execute(
+                select(OutpostDraft.body)
+                .join(OutpostPost, OutpostPost.id == OutpostDraft.post_id)
+                .where(OutpostPost.profile_id == pid,
+                       OutpostDraft.body.ilike(like))).all()
+            if pat.search(txt or ""))
+    return {"posts": int(posts), "drafts": int(drafts)}
+
+
+def rename_product_in_text(pid: str, old_name: str, new_name: str) -> dict:
+    """Rewrite the old product name to the new one in stored reasoning + drafts.
+
+    A plain whole-word, case-sensitive-ish substitution — deliberately NOT an LLM
+    rewrite: re-running the scorer would change the scores themselves, and the
+    user asked to fix a name, not to re-judge their queue.
+    """
+    old, new = (old_name or "").strip(), (new_name or "").strip()
+    if not old or not new or old == new:
+        return {"posts": 0, "drafts": 0}
+
+    pat = re.compile(rf"\b{re.escape(old)}\b", re.I)
+    n_posts = n_drafts = 0
+    with cross_session_scope() as s:
+        rows = s.execute(select(OutpostPost).where(
+            OutpostPost.profile_id == pid,
+            OutpostPost.reasoning.ilike(f"%{old}%"))).scalars().all()
+        for r in rows:
+            fixed = pat.sub(new, r.reasoning or "")
+            if fixed != r.reasoning:
+                r.reasoning = fixed
+                n_posts += 1
+
+        drafts = s.execute(
+            select(OutpostDraft)
+            .join(OutpostPost, OutpostPost.id == OutpostDraft.post_id)
+            .where(OutpostPost.profile_id == pid,
+                   OutpostDraft.body.ilike(f"%{old}%"))).scalars().all()
+        for d in drafts:
+            fixed = pat.sub(new, d.body or "")
+            if fixed != d.body:
+                d.body = fixed
+                n_drafts += 1
+    return {"posts": n_posts, "drafts": n_drafts}
+
+
 def delete_profile(pid: str) -> int:
     with cross_session_scope() as s:
         p = s.get(OutpostProfile, pid)

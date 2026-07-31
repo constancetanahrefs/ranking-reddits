@@ -257,6 +257,34 @@ def api_profile_update(pid: str):
         return jsonify({"error": str(exc)[:300]}), 400
 
 
+class RenameTextIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    old_name: str = Field(min_length=1, max_length=200)
+    new_name: str = Field(min_length=1, max_length=200)
+
+
+@blueprint.route("/api/profiles/<pid>/stale-name")
+def api_stale_name(pid: str):
+    """How many stored reasoning lines / drafts still name the old product."""
+    return jsonify(E.count_stale_product_name(pid, request.args.get("old_name", "")))
+
+
+@blueprint.route("/api/profiles/<pid>/rename-text", methods=["POST"])
+def api_rename_text(pid: str):
+    """Substitute the old product name for the new one in stored text.
+
+    Scores are NOT recomputed — the user asked to fix a name, not to re-judge
+    their queue.
+    """
+    if not _can_write():
+        return jsonify({"error": "read_only"}), 403
+    body = validate_json(RenameTextIn)
+    try:
+        return jsonify(E.rename_product_in_text(pid, body.old_name, body.new_name))
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({"error": str(exc)[:300]}), 400
+
+
 @blueprint.route("/api/profiles/<pid>/delete", methods=["POST"])
 def api_profile_delete(pid: str):
     if not _can_write():

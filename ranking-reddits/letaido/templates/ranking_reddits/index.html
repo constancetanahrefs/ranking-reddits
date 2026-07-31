@@ -1,0 +1,1021 @@
+{% extends "base.html" %}
+{% block title %}Ranking Reddits{% endblock %}
+
+{% block content %}
+<div id="app" class="flex flex-col gap-4">
+
+  <!-- ── Header ─────────────────────────────────────────────────────── -->
+  <div class="flex items-start justify-between gap-3 flex-wrap">
+    <div class="min-w-0">
+      <h1 class="text-xl font-semibold text-foreground">Ranking Reddits</h1>
+      {% if workspace %}
+      <p class="text-sm text-muted-foreground">
+        Reddit threads that rank for
+        <span class="font-medium text-foreground">{{ workspace.target_domain or workspace.name }}</span> —
+        Brand Radar SERP visibility and the top {{ workspace.max_serp_position }}
+        for its tracked keywords.
+      </p>
+      {% else %}
+      <p class="text-sm text-muted-foreground">
+        Track the Reddit threads ranking for any of your Ahrefs projects.
+      </p>
+      {% endif %}
+    </div>
+    <div class="flex items-center gap-2">
+      <a href="/applications/reddit_outpost/"
+         class="px-3 py-1.5 rounded-md text-sm border border-border hover:border-ring
+                text-foreground whitespace-nowrap" title="Fresh Reddit threads worth
+         replying to today — the real-time companion to this app">↗ Reddit Outpost</a>
+      <button onclick="RR.openSettings()"
+        class="px-3 py-1.5 rounded-md text-sm border border-border hover:border-ring">⚙ Settings</button>
+      <button onclick="RR.scan()" id="scanBtn"
+        class="px-3 py-1.5 rounded-md text-sm bg-brand text-brand-foreground hover:opacity-90">
+        Scan now</button>
+    </div>
+  </div>
+
+  <!-- ── Project switcher ───────────────────────────────────────────── -->
+  <div class="bg-card border border-border rounded-lg p-3 flex flex-wrap items-center gap-2">
+    <div class="relative group">
+      <span class="text-xs text-muted-foreground cursor-help underline decoration-dotted">PROJECT</span>
+      <div class="absolute top-full mt-1 left-0 hidden group-hover:block z-50 w-72
+                  bg-card border border-border rounded-lg shadow-lg p-2.5 text-xs text-foreground">
+        Each project is its own monitored scope with its own cards, settings and scan
+        history. The same Reddit thread can rank for two projects — it's a separate
+        card in each, so marking it read in one doesn't touch the other.
+      </div>
+    </div>
+    <select id="wsPick" onchange="RR.switchWs(this.value)"
+      class="rounded-md border border-border bg-muted text-sm text-foreground px-2 py-1.5 max-w-full">
+      {% for w in workspaces %}
+      <option value="{{ w.id }}" {% if workspace and w.id == workspace.id %}selected{% endif %}>
+        {{ w.name }} — {{ w.threads }} threads{% if w.new %} · {{ w.new }} new{% endif %}
+      </option>
+      {% endfor %}
+    </select>
+    <button onclick="RR.wizard()"
+      class="px-3 py-1.5 rounded-md text-sm bg-brand text-brand-foreground hover:opacity-90">
+      + Add project</button>
+    {% if workspace %}
+    <button onclick="RR.deleteWs()"
+      class="px-2.5 py-1.5 rounded-md text-xs border border-border hover:border-ring
+             text-red-600 dark:text-red-400 ml-auto">Remove this project</button>
+    {% endif %}
+  </div>
+
+  {% if not workspace %}
+  <div class="text-sm rounded-md border border-border bg-card px-4 py-6 text-center">
+    <p class="text-foreground font-medium">No project yet.</p>
+    <p class="text-muted-foreground mt-1">Add one and the wizard will pull your Ahrefs
+      Rank Tracker projects so you can pick.</p>
+    <button onclick="RR.wizard()" class="mt-3 px-4 py-2 rounded-md text-sm
+      bg-brand text-brand-foreground hover:opacity-90">Run the setup wizard</button>
+  </div>
+  {% elif stats.config_missing %}
+  <div class="text-sm rounded-md border border-red-400/60 bg-red-500/10 px-3 py-2.5
+              text-red-700 dark:text-red-400">
+    <strong>This project isn't configured yet — scanning is disabled.</strong>
+    <ul class="list-disc pl-5 mt-1">
+      {% for m in stats.config_missing %}<li>{{ m }}</li>{% endfor %}
+    </ul>
+    <button onclick="RR.openSettings()" class="mt-2 px-3 py-1.5 rounded-md text-sm
+      bg-brand text-brand-foreground hover:opacity-90">Open Settings</button>
+  </div>
+  {% endif %}
+
+  <div id="scanBanner" class="hidden text-sm rounded-md border border-border bg-muted px-3 py-2"></div>
+
+  <!-- ── Stat strip ─────────────────────────────────────────────────── -->
+  <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+    {% macro stat(label, value, id, tip) -%}
+    <div class="bg-card border border-border rounded-lg p-3">
+      <div class="relative group inline-block">
+        <span class="text-xs text-muted-foreground cursor-help underline decoration-dotted">{{ label }}</span>
+        <div class="absolute bottom-full mb-1 left-0 hidden group-hover:block z-50 w-56
+                    bg-card border border-border rounded-lg shadow-lg p-2.5 text-xs text-foreground">
+          {{ tip }}
+        </div>
+      </div>
+      <div class="text-lg font-semibold text-foreground" id="{{ id }}">{{ value }}</div>
+    </div>
+    {%- endmacro %}
+    {{ stat('Threads', stats.total, 'stTotal', 'Unique Reddit threads found across both sources. One card per thread, even if many keywords surface it.') }}
+    {{ stat('New', stats.new, 'stNew', 'Found by the most recent scan and not opened yet. Opening a card clears its NEW flag.') }}
+    {{ stat('Unread', stats.unread, 'stUnread', 'Never opened in this app. Opening a card marks it read and fetches its title, upvotes and body.') }}
+    {{ stat('In Scrapbook', stats.saved, 'stSaved', 'Cards pushed into the Scrapbook library, with their AI notes attached.') }}
+  </div>
+
+  <div id="lastScan" class="text-xs text-muted-foreground">
+    {% if stats.last_scan %}
+      Last scan {{ stats.last_scan.started_at[:16].replace('T',' ') }} ·
+      {{ stats.last_scan.status }} · {{ stats.last_scan.threads_new }} new threads
+      {% if stats.last_scan.error %}<span class="text-red-600 dark:text-red-400">· {{ stats.last_scan.error[:160] }}</span>{% endif %}
+    {% else %}No scan yet — hit “Scan now” to build the card wall.{% endif %}
+    · <button onclick="RR.openHistory()" class="underline hover:no-underline">scan history</button>
+  </div>
+
+  <!-- ── Filters ────────────────────────────────────────────────────── -->
+  <div class="bg-card border border-border rounded-lg p-3 flex flex-col gap-2">
+    <div class="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+      <div class="flex items-center gap-1.5">
+        <span class="text-xs text-muted-foreground">SOURCE</span>
+        <div class="flex gap-1" id="fSource">
+          <button data-v="all"      class="rr-seg rr-on">All</button>
+          <button data-v="brand"    class="rr-seg">Brand Radar <span class="text-muted-foreground">{{ stats.by_source.brand }}</span></button>
+          <button data-v="keywords" class="rr-seg">Tracked keywords <span class="text-muted-foreground">{{ stats.by_source.keywords }}</span></button>
+        </div>
+      </div>
+      <div class="flex items-center gap-1.5">
+        <span class="text-xs text-muted-foreground">STATE</span>
+        <div class="flex gap-1" id="fState">
+          <button data-v="all" class="rr-seg rr-on">All</button>
+          <button data-v="new" class="rr-seg">New</button>
+          <button data-v="unread" class="rr-seg">Unread</button>
+          <button data-v="read" class="rr-seg">Read</button>
+          <button data-v="saved" class="rr-seg">Saved</button>
+        </div>
+      </div>
+    </div>
+    <div class="flex flex-wrap items-center gap-2">
+      <input id="fq" placeholder="Search title / snippet…" oninput="RR.debounced()"
+        class="flex-1 min-w-[140px] rounded-md border border-border bg-muted text-sm text-foreground
+               px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-ring">
+      <select id="fSub" onchange="RR.load()"
+        class="rounded-md border border-border bg-muted text-sm text-foreground px-2 py-1.5">
+        <option value="">All subreddits</option>
+        {% for s in stats.subreddits %}<option value="{{ s.name }}">r/{{ s.name }} ({{ s.count }})</option>{% endfor %}
+      </select>
+      <select id="fSort" onchange="RR.load()"
+        class="rounded-md border border-border bg-muted text-sm text-foreground px-2 py-1.5">
+        <option value="newest">Thread date</option>
+        <option value="found">Recently found</option>
+        <option value="position">Best SERP position</option>
+        <option value="upvotes">Upvotes</option>
+        <option value="volume">Keyword volume</option>
+        <option value="citations">AI citations</option>
+      </select>
+      <div class="relative group">
+        <button onclick="RR.enrich()" id="enrBtn"
+          class="px-2.5 py-1.5 rounded-md text-xs border border-border hover:border-ring">Fetch next 10</button>
+        <div class="absolute bottom-full mb-1 right-0 hidden group-hover:block z-50 w-72
+                    bg-card border border-border rounded-lg shadow-lg p-2.5 text-xs text-foreground">
+          Fills in title, upvotes, comments and body for the 10 newest cards that
+          haven't been fetched — so the wall shows engagement without opening each
+          card. Bounded on purpose: each card is ~1 min of render time and real
+          Apify spend.
+        </div>
+      </div>
+      <button onclick="RR.markAll()"
+        class="px-2.5 py-1.5 rounded-md text-xs border border-border hover:border-ring">Clear all NEW</button>
+    </div>
+  </div>
+
+  <!-- ── Card wall ──────────────────────────────────────────────────── -->
+  <div id="cards" class="flex flex-col gap-2"></div>
+  <div id="empty" class="hidden text-sm text-muted-foreground bg-card border border-border rounded-lg p-6 text-center">
+    Nothing here yet. Run a scan, or loosen the filters.
+  </div>
+</div>
+
+<!-- ── Reader drawer ─────────────────────────────────────────────────── -->
+<div id="reader" class="hidden fixed inset-0 z-50 bg-black/60 flex items-start justify-center p-2 sm:p-4 overflow-y-auto"
+     onclick="if(event.target===this) RR.closeReader()">
+  <div class="bg-card border border-border rounded-xl shadow-xl w-full max-w-3xl my-4 flex flex-col">
+    <div class="flex items-start justify-between gap-3 p-4 border-b border-border">
+      <div class="min-w-0">
+        <div class="text-xs text-muted-foreground" id="rdMeta">—</div>
+        <h3 class="text-base font-semibold text-foreground break-words" id="rdTitle">—</h3>
+      </div>
+      <button onclick="RR.closeReader()"
+        class="shrink-0 px-2 py-1 rounded-md text-sm border border-border hover:border-ring">✕</button>
+    </div>
+    <div class="p-4 flex flex-col gap-4">
+      <div class="flex flex-wrap gap-2 text-xs" id="rdStats"></div>
+      <div id="rdKeywords" class="text-xs text-muted-foreground"></div>
+
+      <div>
+        <div class="flex items-center justify-between mb-1">
+          <h4 class="text-sm font-medium text-foreground">AI reading notes
+            <span class="relative group inline-block ml-1">
+              <span class="cursor-help text-muted-foreground">ⓘ</span>
+              <span class="absolute bottom-full mb-1 left-0 hidden group-hover:block z-50 w-72
+                           bg-card border border-border rounded-lg shadow-lg p-2.5 text-xs text-foreground font-normal">
+                A draft, not a verdict. Two angles: <b>Brand</b> (what's said about your brand,
+                sentiment, whether a reply helps) and <b>Content</b> (the unanswered question
+                and an article idea). Generated from the rendered thread — never from the title alone.
+              </span>
+            </span>
+          </h4>
+          <button onclick="RR.redraft()" id="rdRedraft"
+            class="text-xs px-2 py-1 rounded-md border border-border hover:border-ring">Re-draft</button>
+        </div>
+        <div id="rdNotes" class="text-sm text-foreground bg-muted rounded-md p-3">—</div>
+      </div>
+
+      <div>
+        <label class="text-sm font-medium text-foreground">My notes</label>
+        <textarea id="rdUser" rows="3" onchange="RR.saveNotes()"
+          class="mt-1 w-full rounded-md border border-border bg-muted text-sm text-foreground p-2.5
+                 resize-y focus:outline-none focus:ring-1 focus:ring-ring"
+          placeholder="Anything you want to keep with this thread…"></textarea>
+      </div>
+
+      <div>
+        <h4 class="text-sm font-medium text-foreground mb-1">Thread
+          <span class="relative group inline-block ml-1">
+            <span class="cursor-help text-muted-foreground">ⓘ</span>
+            <span class="absolute bottom-full mb-1 left-0 hidden group-hover:block z-50 w-72
+                         bg-card border border-border rounded-lg shadow-lg p-2.5 text-xs text-foreground font-normal">
+              Reddit blocks plain server fetches, so the page is rendered through the
+              Apify crawler with a residential proxy. Upvotes / comments / ratio come
+              from the page's own embedded data — nothing is estimated.
+            </span>
+          </span>
+        </h4>
+        <div id="rdBody"
+          class="text-sm text-foreground whitespace-pre-wrap bg-muted rounded-md p-3 max-h-[45vh] overflow-y-auto">—</div>
+      </div>
+    </div>
+    <div class="flex flex-wrap gap-2 justify-end p-4 border-t border-border">
+      <a id="rdLink" href="#" target="_blank" rel="noopener"
+        class="px-3 py-2 rounded-md text-sm border border-border hover:border-ring">Open on Reddit ↗</a>
+      <button onclick="RR.refetch()" id="rdRefetch"
+        class="px-3 py-2 rounded-md text-sm border border-border hover:border-ring">Re-fetch</button>
+      <button onclick="RR.toScrapbook()" id="rdSave"
+        class="px-3 py-2 rounded-md text-sm bg-foreground text-background hover:opacity-90">
+        Add to Scrapbook</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Settings modal ───────────────────────────────────────────────── -->
+<div id="setModal" class="hidden fixed inset-0 z-50 bg-black/60 flex items-start justify-center p-2 sm:p-4 overflow-y-auto"
+     onclick="if(event.target===this) RR.closeSettings()">
+  <div class="bg-card border border-border rounded-xl shadow-xl w-full max-w-lg my-4 p-5 flex flex-col gap-4">
+    <h3 class="text-base font-semibold text-foreground">Settings</h3>
+    <p class="text-xs text-muted-foreground -mt-2">
+      Scope applies to <b class="text-foreground">this project only</b>. The two
+      “on opening a card” toggles at the bottom are shared across every project.
+    </p>
+
+    <label class="text-sm text-foreground">Target domain
+      <span class="block text-xs text-muted-foreground">Scopes the Brand Radar source to our own site (sub-domains included).</span>
+      <input id="sDomain" class="mt-1 w-full rounded-md border border-border bg-muted text-sm p-2"></label>
+
+    <label class="text-sm text-foreground">Brand keywords
+      <span class="block text-xs text-muted-foreground">Comma separated. Threads matching these are annotated as brand mentions.</span>
+      <input id="sBrand" class="mt-1 w-full rounded-md border border-border bg-muted text-sm p-2"></label>
+
+    <label class="text-sm text-foreground">Rank Tracker project
+      <span class="block text-xs text-muted-foreground">Its tracked keywords are the second source. Project + secret must match.</span>
+      <select id="sProject" class="mt-1 w-full rounded-md border border-border bg-muted text-sm p-2"></select></label>
+
+    <label class="text-sm text-foreground">Keyword tags
+      <span class="block text-xs text-muted-foreground">Empty = every tracked keyword. Comma separated tag names to narrow.</span>
+      <input id="sTags" class="mt-1 w-full rounded-md border border-border bg-muted text-sm p-2"></label>
+
+    <div class="grid grid-cols-2 gap-3">
+      <label class="text-sm text-foreground">Max SERP position
+        <span class="block text-xs text-muted-foreground">10 = first page only.</span>
+        <input id="sPos" type="number" min="1" max="100"
+          class="mt-1 w-full rounded-md border border-border bg-muted text-sm p-2"></label>
+      <label class="text-sm text-foreground">Countries
+        <span class="block text-xs text-muted-foreground">Empty = all markets. e.g. us, gb.</span>
+        <input id="sCountries" class="mt-1 w-full rounded-md border border-border bg-muted text-sm p-2"></label>
+    </div>
+
+    <div class="text-sm text-foreground">
+      Sources
+      <span class="block text-xs text-muted-foreground mb-1">Both feed the same card wall; a thread found by both shows two badges.</span>
+      <label class="flex items-center gap-2 text-sm"><input type="checkbox" id="sSrcBrand"> Brand Radar SERP visibility</label>
+      <label class="flex items-center gap-2 text-sm"><input type="checkbox" id="sSrcKw"> Tracked keywords top-N</label>
+    </div>
+
+    <div class="text-sm text-foreground">
+      On opening a card
+      <label class="flex items-center gap-2 text-sm mt-1"><input type="checkbox" id="sAutoFetch"> Fetch title, upvotes and body</label>
+      <label class="flex items-center gap-2 text-sm"><input type="checkbox" id="sAutoNotes"> Draft AI notes</label>
+    </div>
+
+    <div id="setErr" class="hidden text-sm text-red-600 dark:text-red-400"></div>
+    <div class="flex gap-2 justify-end">
+      <button onclick="RR.closeSettings()"
+        class="px-4 py-2 rounded-md text-sm border border-border hover:border-ring">Cancel</button>
+      <button onclick="RR.saveSettings()"
+        class="px-4 py-2 rounded-md text-sm bg-foreground text-background hover:opacity-90">Save</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- ── Setup wizard ─────────────────────────────────────────────────── -->
+<div id="wizModal" class="hidden fixed inset-0 z-50 bg-black/60 flex items-start justify-center p-2 sm:p-4 overflow-y-auto"
+     onclick="if(event.target===this) RR.closeWizard()">
+  <div class="bg-card border border-border rounded-xl shadow-xl w-full max-w-2xl my-4 flex flex-col">
+    <div class="flex items-start justify-between gap-3 p-4 border-b border-border">
+      <div>
+        <h3 class="text-base font-semibold text-foreground">Add a project</h3>
+        <p class="text-xs text-muted-foreground" id="wizStepLabel">Step 1 of 3 — pick the Ahrefs project</p>
+      </div>
+      <button onclick="RR.closeWizard()"
+        class="px-2 py-1 rounded-md text-sm border border-border hover:border-ring">✕</button>
+    </div>
+
+    <!-- Step 1: pick project -->
+    <div id="wizStep1" class="p-4 flex flex-col gap-3">
+      <p class="text-sm text-muted-foreground">
+        These are the Rank Tracker projects your connected Ahrefs accounts can see.
+        Pick the one you want to monitor — the keyword count tells you whether it can
+        drive the tracked-keyword source.
+      </p>
+      <input id="wizSearch" placeholder="Filter projects…" oninput="RR.wizFilter()"
+        class="w-full rounded-md border border-border bg-muted text-sm p-2">
+      <div id="wizProjects" class="max-h-[46vh] overflow-y-auto flex flex-col gap-1.5
+           border border-border rounded-md p-2">
+        <div class="text-sm text-muted-foreground p-3">Loading your projects…</div>
+      </div>
+      <label class="flex items-center gap-2 text-sm text-foreground">
+        <input type="checkbox" id="wizNoProject" onchange="RR.wizToggleNoProject()">
+        No Rank Tracker project — brand keywords only
+      </label>
+    </div>
+
+    <!-- Step 2: scope -->
+    <div id="wizStep2" class="hidden p-4 flex flex-col gap-3">
+      <label class="text-sm text-foreground">Display name
+        <input id="wizName" class="mt-1 w-full rounded-md border border-border bg-muted text-sm p-2"></label>
+      <label class="text-sm text-foreground">Target domain
+        <span class="block text-xs text-muted-foreground">Scopes the Brand Radar source. Sub-domains included.</span>
+        <input id="wizDomain" class="mt-1 w-full rounded-md border border-border bg-muted text-sm p-2"></label>
+      <label class="text-sm text-foreground">Brand keywords
+        <span class="block text-xs text-muted-foreground">Comma separated. Threads matching these are annotated as brand mentions.</span>
+        <input id="wizBrand" class="mt-1 w-full rounded-md border border-border bg-muted text-sm p-2"></label>
+      <div class="grid grid-cols-2 gap-3">
+        <label class="text-sm text-foreground">Max SERP position
+          <span class="block text-xs text-muted-foreground">10 = first page only.</span>
+          <input id="wizPos" type="number" min="1" max="100" value="10"
+            class="mt-1 w-full rounded-md border border-border bg-muted text-sm p-2"></label>
+        <label class="text-sm text-foreground">Countries
+          <span class="block text-xs text-muted-foreground">Empty = all markets.</span>
+          <input id="wizCountries" placeholder="us, gb"
+            class="mt-1 w-full rounded-md border border-border bg-muted text-sm p-2"></label>
+      </div>
+      <div class="text-sm text-foreground">
+        Sources
+        <span class="block text-xs text-muted-foreground mb-1">Both feed the same card wall.</span>
+        <label class="flex items-center gap-2 text-sm"><input type="checkbox" id="wizSrcBrand" checked> Brand Radar SERP visibility</label>
+        <label class="flex items-center gap-2 text-sm"><input type="checkbox" id="wizSrcKw" checked> Tracked keywords top-N</label>
+      </div>
+      <div id="wizKwWarn" class="hidden text-sm rounded-md border border-orange-400/60
+           bg-orange-500/10 px-3 py-2 text-orange-700 dark:text-orange-400"></div>
+    </div>
+
+    <!-- Step 3: keywords -->
+    <div id="wizStep3" class="hidden p-4 flex flex-col gap-3">
+      <p class="text-sm text-muted-foreground" id="wizKwIntro">
+        This project tracks no keywords yet. Pick from the suggestions below — they come
+        from the pages this target already ranks for — or type your own. Selected
+        keywords are <b>added to the Rank Tracker project in your Ahrefs account</b>.
+      </p>
+      <div class="flex items-center gap-2 text-xs">
+        <button onclick="RR.wizSelectTop(10)" class="px-2 py-1 rounded border border-border hover:border-ring">Select top 10</button>
+        <button onclick="RR.wizSelectTop(25)" class="px-2 py-1 rounded border border-border hover:border-ring">Top 25</button>
+        <button onclick="RR.wizSelectTop(0)" class="px-2 py-1 rounded border border-border hover:border-ring">Clear</button>
+        <span id="wizKwCount" class="text-muted-foreground ml-auto">0 selected</span>
+      </div>
+      <div id="wizKws" class="max-h-[38vh] overflow-y-auto flex flex-col gap-1
+           border border-border rounded-md p-2">
+        <div class="text-sm text-muted-foreground p-3">Loading suggestions…</div>
+      </div>
+      <label class="text-sm text-foreground">Or add your own
+        <span class="block text-xs text-muted-foreground">Comma separated.</span>
+        <input id="wizManual" class="mt-1 w-full rounded-md border border-border bg-muted text-sm p-2"></label>
+      <label class="flex items-center gap-2 text-sm text-foreground">
+        <input type="checkbox" id="wizPushKw" checked>
+        Add these to the Rank Tracker project via the Ahrefs API
+        <span class="relative group inline-block">
+          <span class="cursor-help text-muted-foreground">ⓘ</span>
+          <span class="absolute bottom-full mb-1 right-0 hidden group-hover:block z-50 w-72
+                       bg-card border border-border rounded-lg shadow-lg p-2.5 text-xs
+                       text-foreground font-normal">
+            This writes to your Ahrefs account and consumes tracked-keyword quota
+            (one row per keyword per location). Untick to keep the list local to this
+            app instead — scanning still works either way.
+          </span>
+        </span>
+      </label>
+    </div>
+
+    <div id="wizErr" class="hidden mx-4 mb-2 text-sm text-red-600 dark:text-red-400"></div>
+    <div class="flex gap-2 justify-between p-4 border-t border-border">
+      <button id="wizBack" onclick="RR.wizBack()"
+        class="px-4 py-2 rounded-md text-sm border border-border hover:border-ring invisible">Back</button>
+      <div class="flex gap-2">
+        <button onclick="RR.closeWizard()"
+          class="px-4 py-2 rounded-md text-sm border border-border hover:border-ring">Cancel</button>
+        <button id="wizNext" onclick="RR.wizNext()"
+          class="px-4 py-2 rounded-md text-sm bg-brand text-brand-foreground hover:opacity-90">Next</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Scan history modal ───────────────────────────────────────────── -->
+<div id="histModal" class="hidden fixed inset-0 z-50 bg-black/60 flex items-start justify-center p-2 sm:p-4 overflow-y-auto"
+     onclick="if(event.target===this) RR.closeHistory()">
+  <div class="bg-card border border-border rounded-xl shadow-xl w-full max-w-xl my-4 p-5 flex flex-col gap-3">
+    <h3 class="text-base font-semibold text-foreground">Scan history</h3>
+    <p class="text-xs text-muted-foreground">
+      A scan that returns zero rows is recorded as a <b>failure</b>, not an empty result —
+      a silent transport change must never look like “nothing new”.
+    </p>
+    <div id="histBody" class="flex flex-col gap-2 text-sm"></div>
+    <div class="flex justify-end">
+      <button onclick="RR.closeHistory()"
+        class="px-4 py-2 rounded-md text-sm border border-border hover:border-ring">Close</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<style>
+  .rr-seg { padding: .25rem .55rem; border-radius: .375rem; font-size: .8rem;
+            border: 1px solid oklch(var(--border)); }
+  .rr-seg.rr-on { background: oklch(var(--brand)); color: oklch(var(--brand-foreground));
+                  border-color: oklch(var(--brand)); }
+</style>
+<script>
+const RR = (() => {
+  const U = {
+    cards:    "{{ url_for('ranking_reddits.api_cards') }}",
+    stats:    "{{ url_for('ranking_reddits.api_stats') }}",
+    open:     "{{ url_for('ranking_reddits.api_open') }}",
+    fetch:    "{{ url_for('ranking_reddits.api_fetch') }}",
+    draft:    "{{ url_for('ranking_reddits.api_notes_draft') }}",
+    saveNote: "{{ url_for('ranking_reddits.api_notes_save') }}",
+    mark:     "{{ url_for('ranking_reddits.api_mark') }}",
+    scrap:    "{{ url_for('ranking_reddits.api_scrapbook') }}",
+    enrich:   "{{ url_for('ranking_reddits.api_enrich') }}",
+    scan:     "{{ url_for('ranking_reddits.api_scan') }}",
+    scans:    "{{ url_for('ranking_reddits.api_scans') }}",
+    settings: "{{ url_for('ranking_reddits.api_settings') }}",
+    projects: "{{ url_for('ranking_reddits.api_rt_projects') }}",
+    card:     (id) => "{{ url_for('ranking_reddits.api_card', thread_id='__ID__') }}".replace('__ID__', id),
+    wsList:   "{{ url_for('ranking_reddits.api_workspaces') }}",
+    wsCreate: "{{ url_for('ranking_reddits.api_workspaces') }}",
+    wsUpdate: (id) => "{{ url_for('ranking_reddits.api_workspace_update', ws_id='__ID__') }}".replace('__ID__', id),
+    wsDelete: (id) => "{{ url_for('ranking_reddits.api_workspace_delete', ws_id='__ID__') }}".replace('__ID__', id),
+    wizProjects: "{{ url_for('ranking_reddits.api_wizard_projects') }}",
+    wizSuggest:  "{{ url_for('ranking_reddits.api_wizard_suggest') }}",
+    wizAddKw:    "{{ url_for('ranking_reddits.api_wizard_add_keywords') }}",
+    job:      (id) => "{{ url_for('ranking_reddits.api_job', job_id='__ID__') }}".replace('__ID__', id),
+  };
+  let state = { source: 'all', st: 'all' }, current = null, timer = null;
+  const WS = {{ (workspace.id if workspace else '') | tojson }};
+  let wiz = { step: 1, projects: [], picked: null, suggestions: [], chosen: new Set() };
+
+  const esc = (s) => (s ?? '').toString().replace(/[&<>"']/g, c =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const jget = (u) => fetch(u).then(r => r.json());
+  const jpost = (u, b) => fetch(u, {method:'POST', headers:{'Content-Type':'application/json'},
+                                    body: JSON.stringify(b||{})}).then(r => r.json());
+  const ago = (iso) => {
+    if (!iso) return 'date unknown';
+    const d = (Date.now() - new Date(iso)) / 86400000;
+    if (d < 1) return 'today';
+    if (d < 30) return Math.round(d) + 'd ago';
+    if (d < 365) return Math.round(d/30) + 'mo ago';
+    return Math.round(d/365) + 'y ago';
+  };
+
+  function segs(id, key) {
+    document.querySelectorAll('#' + id + ' .rr-seg').forEach(b => b.onclick = () => {
+      document.querySelectorAll('#' + id + ' .rr-seg').forEach(x => x.classList.remove('rr-on'));
+      b.classList.add('rr-on');
+      state[key] = b.dataset.v;
+      load();
+    });
+  }
+
+  function badge(txt, tone) {
+    const tones = {
+      new:  'bg-orange-500/10 text-orange-600 dark:text-orange-400',
+      brand:'bg-blue-500/10 text-blue-600 dark:text-blue-400',
+      kw:   'bg-green-500/10 text-green-700 dark:text-green-400',
+      mute: 'bg-muted text-muted-foreground',
+      saved:'bg-brand text-brand-foreground',
+    };
+    return `<span class="px-1.5 py-0.5 rounded text-[11px] font-medium ${tones[tone]||tones.mute}">${esc(txt)}</span>`;
+  }
+
+  function cardHtml(c) {
+    const kws = (c.keywords || []).slice(0, 3)
+      .map(k => `${esc(k.keyword)}<span class="text-muted-foreground"> #${k.position ?? '—'}${k.country ? ' ' + k.country : ''}</span>`)
+      .join(' · ');
+    const more = (c.keywords || []).length > 3 ? ` +${c.keywords.length - 3} more` : '';
+    return `
+    <div onclick="RR.openCard('${c.id}')"
+      class="bg-card border ${c.is_new ? 'border-orange-400/60' : 'border-border'} rounded-lg p-3
+             cursor-pointer hover:border-ring transition-colors">
+      <div class="flex items-center gap-2 flex-wrap text-xs text-muted-foreground mb-1">
+        ${c.is_new ? badge('NEW', 'new') : ''}
+        <span class="font-medium text-foreground">r/${esc(c.subreddit || '?')}</span>
+        <span>· ${esc(ago(c.posted_at))}</span>
+        ${c.best_position ? `<span>· SERP #${c.best_position}</span>` : ''}
+        ${c.upvotes != null ? `<span>· ▲ ${c.upvotes}</span>` : ''}
+        ${c.num_comments != null ? `<span>· ${c.num_comments} comments</span>` : ''}
+        ${c.ai_citations ? `<span>· ${c.ai_citations} AI citations</span>` : ''}
+        ${!c.is_read ? '<span class="text-foreground">· unread</span>' : ''}
+        ${c.scrapbook_item_id ? '· ' + badge('in Scrapbook', 'saved') : ''}
+      </div>
+      <div class="text-sm font-medium text-foreground leading-snug">
+        ${esc(c.title || c.url)}</div>
+      ${c.description ? `<div class="text-xs text-muted-foreground mt-1 line-clamp-2">${esc(c.description.slice(0,220))}</div>` : ''}
+      <div class="flex items-center gap-1.5 mt-2 flex-wrap text-[11px]">
+        ${(c.sources || []).map(s => badge(s === 'brand' ? 'Brand Radar' : 'Tracked keyword', s === 'brand' ? 'brand' : 'kw')).join('')}
+        ${kws ? `<span class="text-muted-foreground">${kws}${more}</span>` : ''}
+      </div>
+    </div>`;
+  }
+
+  async function load() {
+    const p = new URLSearchParams({
+      ws: WS, source: state.source, state: state.st,
+      subreddit: document.getElementById('fSub').value,
+      sort: document.getElementById('fSort').value,
+      q: document.getElementById('fq').value, limit: 200,
+    });
+    const d = await jget(U.cards + '?' + p);
+    const box = document.getElementById('cards');
+    box.innerHTML = (d.cards || []).map(cardHtml).join('');
+    document.getElementById('empty').classList.toggle('hidden', (d.cards || []).length > 0);
+  }
+
+  function debounced() { clearTimeout(timer); timer = setTimeout(load, 300); }
+
+  async function refreshStats() {
+    const s = await jget(U.stats + '?ws=' + encodeURIComponent(WS));
+    for (const [id, v] of Object.entries({stTotal: s.total, stNew: s.new,
+                                          stUnread: s.unread, stSaved: s.saved}))
+      document.getElementById(id).textContent = v;
+  }
+
+  function pollJob(jobId, onDone, onProgress) {
+    const t = setInterval(async () => {
+      const j = await jget(U.job(jobId));
+      if (onProgress && j.progress) onProgress(j.progress);
+      if (j.status === 'completed') { clearInterval(t); onDone(null, j); }
+      else if (j.status === 'failed') { clearInterval(t); onDone(j.error || 'failed', j); }
+    }, 2500);
+  }
+
+  // ── reader ─────────────────────────────────────────────────────────
+  async function openCard(id) {
+    current = id;
+    document.getElementById('reader').classList.remove('hidden');
+    render(await jget(U.card(id)));
+    const r = await jpost(U.open, {thread_id: id});
+    if (r.job_id) {
+      document.getElementById('rdBody').textContent = 'Rendering the thread… (~1 min)';
+      pollJob(r.job_id, async (err) => {
+        if (err) document.getElementById('rdBody').textContent = 'Fetch failed: ' + err;
+        if (current === id) render(await jget(U.card(id)));
+        load(); refreshStats();
+      }, (p) => { const b = document.getElementById('rdBody');
+                  if (!b.textContent || b.textContent.startsWith('Render') || b.textContent.startsWith('Draft')) b.textContent = p; });
+    }
+    load(); refreshStats();
+  }
+
+  function notesHtml(n) {
+    if (!n) return '<span class="text-muted-foreground">No notes yet.</span>';
+    const list = (arr) => (arr || []).map(b => `<li>${esc(b)}</li>`).join('');
+    return `
+      <div class="mb-2">${esc(n.summary || '')}</div>
+      <div class="flex flex-wrap gap-2 mb-2 text-xs">
+        ${n.sentiment ? badge('sentiment: ' + n.sentiment, n.sentiment === 'negative' ? 'new' : 'mute') : ''}
+        ${n.reply_worthy ? badge('worth replying', 'brand') : ''}
+      </div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div><div class="text-xs font-medium text-muted-foreground mb-1">BRAND</div>
+          <ul class="list-disc pl-4 space-y-1">${list(n.brand)}</ul></div>
+        <div><div class="text-xs font-medium text-muted-foreground mb-1">CONTENT</div>
+          <ul class="list-disc pl-4 space-y-1">${list(n.content)}</ul></div>
+      </div>`;
+  }
+
+  function render(c) {
+    current = c.id;
+    document.getElementById('rdTitle').textContent = c.title || c.url;
+    document.getElementById('rdMeta').textContent =
+      `r/${c.subreddit || '?'} · ${c.posted_at ? c.posted_at.slice(0,10) : 'date unknown'}` +
+      (c.author ? ` · u/${c.author}` : '');
+    document.getElementById('rdLink').href = c.url;
+    document.getElementById('rdStats').innerHTML = [
+      c.upvotes != null ? badge('▲ ' + c.upvotes + ' upvotes', 'kw') : badge('upvotes not fetched', 'mute'),
+      c.num_comments != null ? badge(c.num_comments + ' comments', 'mute') : '',
+      c.upvote_ratio != null ? badge(Math.round(c.upvote_ratio * 100) + '% upvoted', 'mute') : '',
+      c.best_position ? badge('best SERP #' + c.best_position, 'mute') : '',
+      c.ai_citations ? badge(c.ai_citations + ' AI citations', 'brand') : '',
+      c.scrapbook_item_id ? badge('in Scrapbook', 'saved') : '',
+      c.fetch_status === 'failed' ? badge('fetch failed', 'new') : '',
+    ].filter(Boolean).join(' ');
+    const kw = (c.keywords || []);
+    document.getElementById('rdKeywords').innerHTML = kw.length
+      ? '<b>Ranks for:</b> ' + kw.slice(0, 12).map(k =>
+          `${esc(k.keyword)} <span class="opacity-70">#${k.position ?? '—'}${k.volume ? ', vol ' + k.volume : ''}${k.country ? ', ' + k.country : ''}</span>`
+        ).join(' · ') + (kw.length > 12 ? ` +${kw.length - 12} more` : '')
+      : '';
+    document.getElementById('rdNotes').innerHTML =
+      c.notes_status === 'failed' ? 'Notes failed: ' + esc(c.notes_error) : notesHtml(c.ai_notes);
+    document.getElementById('rdUser').value = c.user_notes || '';
+    const body = c.body_md || c.description || '';
+    document.getElementById('rdBody').textContent = body ||
+      (c.fetch_status === 'failed' ? 'Could not render this thread: ' + c.fetch_error
+                                   : 'Not fetched yet.');
+    document.getElementById('rdSave').textContent =
+      c.scrapbook_item_id ? 'Open in Scrapbook' : 'Add to Scrapbook';
+    document.getElementById('rdSave').dataset.saved = c.scrapbook_item_id ? '1' : '';
+  }
+
+  const closeReader = () => { document.getElementById('reader').classList.add('hidden'); current = null; };
+
+  async function refetch() {
+    const b = document.getElementById('rdRefetch'); b.disabled = true; b.textContent = 'Fetching…';
+    const r = await jpost(U.fetch, {thread_id: current});
+    pollJob(r.job_id, async (err) => {
+      b.disabled = false; b.textContent = 'Re-fetch';
+      if (current) render(await jget(U.card(current)));
+      load();
+    }, (p) => document.getElementById('rdBody').textContent = p);
+  }
+
+  async function redraft() {
+    const b = document.getElementById('rdRedraft'); b.disabled = true; b.textContent = 'Drafting…';
+    document.getElementById('rdNotes').textContent = 'Drafting…';
+    const r = await jpost(U.draft, {thread_id: current});
+    pollJob(r.job_id, async (err) => {
+      b.disabled = false; b.textContent = 'Re-draft';
+      if (current) render(await jget(U.card(current)));
+    });
+  }
+
+  const saveNotes = () => jpost(U.saveNote,
+    {thread_id: current, user_notes: document.getElementById('rdUser').value});
+
+  async function toScrapbook() {
+    const b = document.getElementById('rdSave');
+    if (b.dataset.saved) { window.open('/applications/scrapbook/', '_blank'); return; }
+    b.disabled = true; b.textContent = 'Saving…';
+    const r = await jpost(U.scrap, {thread_id: current});
+    b.disabled = false;
+    b.textContent = r.error ? 'Failed' : 'Open in Scrapbook';
+    if (!r.error) { b.dataset.saved = '1'; load(); refreshStats(); }
+  }
+
+  // ── scan ───────────────────────────────────────────────────────────
+  async function scan() {
+    const btn = document.getElementById('scanBtn'), ban = document.getElementById('scanBanner');
+    btn.disabled = true; btn.textContent = 'Scanning…';
+    ban.classList.remove('hidden'); ban.textContent = 'Starting…';
+    const r = await jpost(U.scan, {ws: WS, trigger: 'manual'});
+    if (r.error) {
+      ban.textContent = (r.missing && r.missing.length)
+        ? 'Not configured yet: ' + r.missing.join(' · ') : 'Error: ' + r.error;
+      btn.disabled = false; btn.textContent = 'Scan now'; return;
+    }
+    pollJob(r.job_id, (err, j) => {
+      btn.disabled = false; btn.textContent = 'Scan now';
+      ban.textContent = err ? 'Scan failed: ' + err : 'Scan complete — ' + j.progress;
+      load(); refreshStats();
+    }, (p) => ban.textContent = p);
+  }
+
+  async function enrich() {
+    const btn = document.getElementById('enrBtn'), ban = document.getElementById('scanBanner');
+    btn.disabled = true; btn.textContent = 'Fetching…';
+    ban.classList.remove('hidden'); ban.textContent = 'Fetching card details…';
+    const r = await jpost(U.enrich, {ws: WS, limit: 10});
+    if (r.error) { ban.textContent = 'Error: ' + r.error; btn.disabled = false; btn.textContent = 'Fetch next 10'; return; }
+    pollJob(r.job_id, (err, j) => {
+      btn.disabled = false; btn.textContent = 'Fetch next 10';
+      ban.textContent = err ? 'Fetch failed: ' + err : j.progress;
+      load();
+    }, (p) => ban.textContent = p);
+  }
+
+  async function markAll() {
+    await jpost(U.mark, {all_cards: true, clear_new: true});
+    load(); refreshStats();
+  }
+
+
+  // ── project switcher ───────────────────────────────────────────────
+  function switchWs(id) { window.location.search = '?ws=' + encodeURIComponent(id); }
+
+  async function deleteWs() {
+    const sel = document.getElementById('wsPick');
+    const label = sel.selectedOptions[0]?.text || 'this project';
+    if (!confirm('Remove ' + label.trim() + '?\n\nThis deletes its cards and scan '
+                 + 'history. Other projects are untouched. This cannot be undone.')) return;
+    const r = await jpost(U.wsDelete(WS), {});
+    if (r.error) { alert(r.error); return; }
+    window.location.search = '';
+  }
+
+  // ── setup wizard ───────────────────────────────────────────────────
+  const wizEl = (id) => document.getElementById(id);
+  const wizErr = (m) => { const e = wizEl('wizErr');
+    e.classList.toggle('hidden', !m); e.textContent = m || ''; };
+
+  async function wizard() {
+    wiz = { step: 1, projects: [], picked: null, suggestions: [], chosen: new Set() };
+    wizErr(''); wizShow(1);
+    wizEl('wizModal').classList.remove('hidden');
+    wizEl('wizProjects').innerHTML =
+      '<div class="text-sm text-muted-foreground p-3">Loading your projects…</div>';
+    const d = await jget(U.wizProjects);
+    if (d.error) {
+      wizEl('wizProjects').innerHTML =
+        '<div class="text-sm text-red-600 dark:text-red-400 p-3">' + esc(d.error) + '</div>';
+      return;
+    }
+    wiz.projects = d.projects || [];
+    wizRenderProjects();
+  }
+  const closeWizard = () => wizEl('wizModal').classList.add('hidden');
+
+  function wizRenderProjects() {
+    const q = (wizEl('wizSearch').value || '').toLowerCase();
+    const list = wiz.projects.filter(p =>
+      !q || p.name.toLowerCase().includes(q) || (p.target_url||'').toLowerCase().includes(q));
+    wizEl('wizProjects').innerHTML = list.length ? list.slice(0, 200).map(p => `
+      <button onclick="RR.wizPick('${p.id}')"
+        class="text-left px-2.5 py-2 rounded-md border ${wiz.picked && wiz.picked.id===p.id
+          ? 'border-brand bg-brand/10' : 'border-transparent hover:border-border'}">
+        <div class="text-sm font-medium text-foreground">${esc(p.name)}</div>
+        <div class="text-xs text-muted-foreground">${esc(p.target_url)} ·
+          ${p.keywords} keyword${p.keywords===1?'':'s'}
+          ${p.keywords ? '' : ' <span class="text-orange-600 dark:text-orange-400">· none tracked yet</span>'}
+        </div>
+      </button>`).join('')
+      : '<div class="text-sm text-muted-foreground p-3">No project matches that.</div>';
+  }
+  const wizFilter = () => wizRenderProjects();
+
+  function wizPick(id) {
+    wiz.picked = wiz.projects.find(p => p.id === id) || null;
+    wizEl('wizNoProject').checked = false;
+    wizRenderProjects();
+  }
+
+  function wizToggleNoProject() {
+    if (wizEl('wizNoProject').checked) { wiz.picked = null; wizRenderProjects(); }
+  }
+
+  function wizShow(n) {
+    wiz.step = n;
+    for (const i of [1,2,3])
+      wizEl('wizStep'+i).classList.toggle('hidden', i !== n);
+    wizEl('wizBack').classList.toggle('invisible', n === 1);
+    const labels = {1:'Step 1 of 3 — pick the Ahrefs project',
+                    2:'Step 2 of 3 — scope',
+                    3:'Step 3 of 3 — keywords'};
+    wizEl('wizStepLabel').textContent = labels[n];
+    wizEl('wizNext').textContent = (n === 3 || (n === 2 && !wizNeedsKeywords()))
+      ? 'Create project' : 'Next';
+  }
+
+  const wizBack = () => wizShow(Math.max(1, wiz.step - 1));
+
+  function wizNeedsKeywords() {
+    // step 3 only matters when the keyword source is on and the project has none
+    return wizEl('wizSrcKw').checked && (!wiz.picked || wiz.picked.keywords === 0);
+  }
+
+  function wizDomainFromTarget(t) {
+    return (t || '').replace(/^https?:\/\//,'').replace(/\/.*$/,'').replace(/^www\./,'');
+  }
+
+  async function wizNext() {
+    wizErr('');
+    if (wiz.step === 1) {
+      if (!wiz.picked && !wizEl('wizNoProject').checked) {
+        wizErr('Pick a project, or tick "No Rank Tracker project".'); return;
+      }
+      const p = wiz.picked;
+      wizEl('wizName').value = p ? p.name : '';
+      wizEl('wizDomain').value = p ? wizDomainFromTarget(p.target_url) : '';
+      const guess = (wizEl('wizDomain').value || '').split('.')[0];
+      wizEl('wizBrand').value = guess || '';
+      wizEl('wizSrcKw').checked = !!p;
+      const warn = wizEl('wizKwWarn');
+      if (p && p.keywords === 0) {
+        warn.classList.remove('hidden');
+        warn.innerHTML = '<b>' + esc(p.name) + '</b> tracks 0 keywords. The next step '
+          + 'suggests keywords from what this target already ranks for, and can add '
+          + 'them to the Rank Tracker project for you.';
+      } else { warn.classList.add('hidden'); }
+      wizShow(2); return;
+    }
+    if (wiz.step === 2) {
+      if (!wizEl('wizSrcBrand').checked && !wizEl('wizSrcKw').checked) {
+        wizErr('Pick at least one source.'); return;
+      }
+      if (wizEl('wizSrcBrand').checked && !wizEl('wizDomain').value.trim()) {
+        wizErr('Brand Radar needs a target domain.'); return;
+      }
+      if (wizNeedsKeywords()) { wizShow(3); wizLoadSuggestions(); return; }
+      return wizCreate();
+    }
+    return wizCreate();
+  }
+
+  async function wizLoadSuggestions() {
+    const box = wizEl('wizKws');
+    box.innerHTML = '<div class="text-sm text-muted-foreground p-3">Loading suggestions…</div>';
+    const target = wiz.picked ? (wiz.picked.target_url || wizEl('wizDomain').value)
+                              : wizEl('wizDomain').value;
+    const d = await jpost(U.wizSuggest, {
+      target: target.replace(/^https?:\/\//,''),
+      mode: wiz.picked ? (wiz.picked.target_mode || 'subdomains') : 'subdomains',
+      secret: wiz.picked ? wiz.picked.secret : 'ahrefs_oauth',
+      limit: 60, min_volume: 50});
+    if (d.error) {
+      box.innerHTML = '<div class="text-sm text-red-600 dark:text-red-400 p-3">'
+        + esc(d.error) + '<br>You can still type keywords manually below.</div>';
+      return;
+    }
+    wiz.suggestions = d.suggestions || [];
+    if (!wiz.suggestions.length) {
+      box.innerHTML = '<div class="text-sm text-muted-foreground p-3">No suggestions for '
+        + 'this target — type your own below.</div>';
+      return;
+    }
+    wizRenderKws();
+  }
+
+  function wizRenderKws() {
+    wizEl('wizKws').innerHTML = wiz.suggestions.map((k, i) => `
+      <label class="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted text-sm">
+        <input type="checkbox" ${wiz.chosen.has(k.keyword) ? 'checked' : ''}
+          onchange="RR.wizToggleKw(${i}, this.checked)">
+        <span class="flex-1 text-foreground">${esc(k.keyword)}</span>
+        <span class="text-xs text-muted-foreground">
+          ${k.volume != null ? 'vol ' + k.volume : '—'}${k.position ? ' · #' + k.position : ''}</span>
+      </label>`).join('');
+    wizEl('wizKwCount').textContent = wiz.chosen.size + ' selected';
+  }
+
+  function wizToggleKw(i, on) {
+    const k = wiz.suggestions[i].keyword;
+    on ? wiz.chosen.add(k) : wiz.chosen.delete(k);
+    wizEl('wizKwCount').textContent = wiz.chosen.size + ' selected';
+  }
+
+  function wizSelectTop(n) {
+    wiz.chosen = new Set(wiz.suggestions.slice(0, n).map(k => k.keyword));
+    wizRenderKws();
+  }
+
+  async function wizCreate() {
+    const btn = wizEl('wizNext'); btn.disabled = true; btn.textContent = 'Creating…';
+    wizErr('');
+    const csvv = (id) => (wizEl(id).value || '').split(',').map(x => x.trim()).filter(Boolean);
+    const manual = csvv('wizManual');
+    const chosen = [...wiz.chosen, ...manual];
+    const srcs = [];
+    if (wizEl('wizSrcBrand').checked) srcs.push('brand');
+    if (wizEl('wizSrcKw').checked) srcs.push('keywords');
+
+    // optionally push the keywords into the user's Rank Tracker project first
+    if (chosen.length && wiz.picked && wizEl('wizPushKw') && wizEl('wizPushKw').checked) {
+      btn.textContent = 'Adding keywords…';
+      const a = await jpost(U.wizAddKw, {
+        rt_project_id: wiz.picked.id, keywords: chosen,
+        secret: wiz.picked.secret, country: (csvv('wizCountries')[0] || 'us')});
+      if (a.error) {
+        wizErr('Could not add keywords to Ahrefs: ' + a.error
+               + ' — creating the project with them as a local list instead.');
+      }
+    }
+
+    const body = {
+      name: wizEl('wizName').value.trim() || (wiz.picked ? wiz.picked.name : 'New project'),
+      target_domain: wizEl('wizDomain').value.trim(),
+      brand_keywords: csvv('wizBrand'),
+      rt_project_id: wiz.picked ? wiz.picked.id : '',
+      rt_project_name: wiz.picked ? wiz.picked.name : '',
+      ahrefs_secret: wiz.picked ? wiz.picked.secret : 'ahrefs_oauth',
+      sources: srcs,
+      countries: csvv('wizCountries'),
+      max_serp_position: parseInt(wizEl('wizPos').value || '10', 10),
+      manual_keywords: chosen,
+      setup_complete: true,
+    };
+    const r = await jpost(U.wsCreate, body);
+    btn.disabled = false; btn.textContent = 'Create project';
+    if (r.error) { wizErr(r.error); return; }
+    window.location.search = '?ws=' + encodeURIComponent(r.id);
+  }
+
+  // ── settings ───────────────────────────────────────────────────────
+  async function openSettings() {
+    if (!WS) { wizard(); return; }
+    const [app, wsList] = await Promise.all([jget(U.settings), jget(U.wsList)]);
+    const s = Object.assign({}, app,
+      (wsList.workspaces || []).find(w => w.id === WS) || {});
+    document.getElementById('sDomain').value = s.target_domain || '';
+    document.getElementById('sBrand').value = (s.brand_keywords || []).join(', ');
+    document.getElementById('sTags').value = (s.rt_tags || []).join(', ');
+    document.getElementById('sPos').value = s.max_serp_position || 10;
+    document.getElementById('sCountries').value = (s.countries || []).join(', ');
+    document.getElementById('sSrcBrand').checked = (s.sources || []).includes('brand');
+    document.getElementById('sSrcKw').checked = (s.sources || []).includes('keywords');
+    document.getElementById('sAutoFetch').checked = !!s.auto_fetch_on_open;
+    document.getElementById('sAutoNotes').checked = !!s.auto_notes_on_open;
+    const sel = document.getElementById('sProject');
+    sel.innerHTML = `<option value="${esc(s.rt_project_id)}">${esc(s.rt_project_name || s.rt_project_id || '— none —')}</option>`;
+    document.getElementById('setModal').classList.remove('hidden');
+    jget(U.wizProjects).then(d => {
+      if (!d.projects) return;
+      sel.innerHTML = '<option value="">— no Rank Tracker project —</option>' +
+        d.projects.map(p =>
+        `<option value="${esc(p.id)}" data-n="${esc(p.name)}" data-s="${esc(p.secret)}" ${p.id === s.rt_project_id ? 'selected' : ''}>${esc(p.name)} — ${p.keywords} kw</option>`).join('');
+    });
+  }
+  const closeSettings = () => document.getElementById('setModal').classList.add('hidden');
+
+  async function saveSettings() {
+    const csv = (id) => document.getElementById(id).value.split(',').map(x => x.trim()).filter(Boolean);
+    const sel = document.getElementById('sProject');
+    const srcs = [];
+    if (document.getElementById('sSrcBrand').checked) srcs.push('brand');
+    if (document.getElementById('sSrcKw').checked) srcs.push('keywords');
+    const err = document.getElementById('setErr');
+    if (!srcs.length) { err.classList.remove('hidden'); err.textContent = 'Pick at least one source.'; return; }
+    err.classList.add('hidden');
+
+    // scope belongs to THIS project; auto-fetch/notes are app-wide
+    const wsBody = {
+      target_domain: document.getElementById('sDomain').value.trim(),
+      brand_keywords: csv('sBrand'), rt_tags: csv('sTags'),
+      rt_project_id: sel.value || '',
+      rt_project_name: sel.selectedOptions[0]?.dataset.n || '',
+      max_serp_position: parseInt(document.getElementById('sPos').value || '10', 10),
+      countries: csv('sCountries'), sources: srcs,
+    };
+    if (sel.selectedOptions[0]?.dataset.s) wsBody.ahrefs_secret = sel.selectedOptions[0].dataset.s;
+
+    const [a, b] = await Promise.all([
+      jpost(U.wsUpdate(WS), wsBody),
+      jpost(U.settings, {
+        auto_fetch_on_open: document.getElementById('sAutoFetch').checked,
+        auto_notes_on_open: document.getElementById('sAutoNotes').checked}),
+    ]);
+    if (a.error || b.error) {
+      err.classList.remove('hidden');
+      err.textContent = (a.error || b.error || '').slice(0, 300); return;
+    }
+    window.location.reload();
+  }
+
+  // ── history ────────────────────────────────────────────────────────
+  async function openHistory() {
+    document.getElementById('histModal').classList.remove('hidden');
+    const d = await jget(U.scans + '?ws=' + encodeURIComponent(WS));
+    document.getElementById('histBody').innerHTML = (d.scans || []).length
+      ? d.scans.map(s => `
+        <div class="border border-border rounded-md p-2">
+          <div class="flex justify-between gap-2 text-xs">
+            <span>${esc((s.started_at || '').slice(0,16).replace('T',' '))} · ${esc(s.trigger)}</span>
+            <span class="${s.status === 'failed' ? 'text-red-600 dark:text-red-400' : 'text-green-700 dark:text-green-400'}">${esc(s.status)}</span>
+          </div>
+          <div class="text-xs text-muted-foreground mt-1">
+            ${s.keywords_used} keywords · ${s.threads_seen} threads seen ·
+            <b class="text-foreground">${s.threads_new} new</b> · ${s.hits_new} new keyword hits
+          </div>
+          ${s.error ? `<div class="text-xs text-red-600 dark:text-red-400 mt-1">${esc(s.error.slice(0,300))}</div>` : ''}
+          ${(s.log || []).length ? `<div class="text-xs text-muted-foreground mt-1">${s.log.map(esc).join(' · ')}</div>` : ''}
+        </div>`).join('')
+      : '<div class="text-sm text-muted-foreground">No scans recorded yet.</div>';
+  }
+  const closeHistory = () => document.getElementById('histModal').classList.add('hidden');
+
+  // ── init ───────────────────────────────────────────────────────────
+  document.addEventListener('DOMContentLoaded', () => {
+    segs('fSource', 'source'); segs('fState', 'st');
+    document.getElementById('cards').innerHTML =
+      ({{ initial | tojson }} || []).map(cardHtml).join('');
+    document.getElementById('empty').classList.toggle('hidden', {{ initial | length }} > 0);
+  });
+
+  return {load, debounced, openCard, closeReader, refetch, redraft, saveNotes, toScrapbook,
+          scan, enrich, markAll, openSettings, closeSettings, saveSettings,
+          openHistory, closeHistory,
+          switchWs, deleteWs, wizard, closeWizard, wizFilter, wizPick, wizToggleNoProject,
+          wizNext, wizBack, wizToggleKw, wizSelectTop};
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,1332 @@
+{% extends "base.html" %}
+{% block title %}Reddit Outpost{% endblock %}
+
+{% block content %}
+<div id="app" class="flex flex-col gap-4">
+
+  <!-- ── Header ─────────────────────────────────────────────────────── -->
+  <div class="flex items-start justify-between gap-3 flex-wrap">
+    <div class="min-w-0">
+      <h1 class="text-xl font-semibold text-foreground">Reddit Outpost</h1>
+      <p class="text-sm text-muted-foreground">
+        {% if profile %}
+        Fresh Reddit threads where a reply mentioning
+        <span class="font-medium text-foreground">{{ profile.product_name }}</span>
+        would actually land. Scored daily — you write the reply.
+        {% else %}
+        A listening post for Reddit threads worth replying to.
+        {% endif %}
+      </p>
+    </div>
+    <div class="flex items-center gap-2">
+      {# Optional companion app. Delete this link if you don't run Ranking Reddits. #}
+      {% if config.get('OUTPOST_SHOW_RANKING_LINK', True) %}
+      <a href="/applications/ranking_reddits/"
+         class="px-3 py-1.5 rounded-md text-sm border border-border hover:border-ring
+                text-foreground whitespace-nowrap" title="Reddit threads that rank in
+         search results — the evergreen companion to this app">↗ Ranking Reddits</a>
+      {% endif %}
+      <button onclick="RO.scan()" id="scanBtn"
+        class="px-3 py-1.5 rounded-md text-sm bg-brand text-brand-foreground hover:opacity-90">
+        Scan now</button>
+    </div>
+  </div>
+
+  <!-- ── Profile switcher ───────────────────────────────────────────── -->
+  <div class="bg-card border border-border rounded-lg p-3 flex flex-wrap items-center gap-2">
+    <div class="relative group">
+      <span class="text-xs text-muted-foreground cursor-help underline decoration-dotted">WATCHING FOR</span>
+      <div class="absolute top-full mt-1 left-0 hidden group-hover:block z-50 w-80
+                  bg-card border border-border rounded-lg shadow-lg p-2.5 text-xs text-foreground">
+        A <b>watch profile</b> is one product you're listening for. It owns its own
+        product brief, topic filters, subreddit list, feed and blocklist. The brief
+        grounds every relevance score and every draft reply, so keeping it current
+        matters more than any other setting here.
+      </div>
+    </div>
+    <select id="profPick" onchange="RO.switchProfile(this.value)"
+      class="rounded-md border border-border bg-muted text-sm text-foreground px-2 py-1.5 max-w-full">
+      {% for p in profiles %}
+      <option value="{{ p.id }}" {% if profile and p.id == profile.id %}selected{% endif %}>
+        {{ p.name }} — {{ p.subs }} subs{% if p.matched %} · {{ p.matched }} to review{% endif %}
+      </option>
+      {% endfor %}
+    </select>
+    <button onclick="RO.openProfile()"
+      class="px-3 py-1.5 rounded-md text-sm border border-border hover:border-ring">⚙ Edit</button>
+    <button onclick="RO.newProfile()"
+      class="px-3 py-1.5 rounded-md text-sm border border-border hover:border-ring">+ New</button>
+
+    <span class="ml-auto text-xs text-muted-foreground flex items-center gap-1.5">
+      <span class="inline-block w-1.5 h-1.5 rounded-full bg-green-500"></span>
+      Never posts to Reddit — you copy and paste every reply
+    </span>
+  </div>
+
+  {% if not profile %}
+  <div class="text-sm rounded-md border border-border bg-card px-4 py-6 text-center">
+    <p class="text-foreground font-medium">No watch profile yet.</p>
+    <button onclick="RO.newProfile()" class="mt-3 px-4 py-2 rounded-md text-sm
+      bg-brand text-brand-foreground hover:opacity-90">Create one</button>
+  </div>
+  {% else %}
+
+  {% if stats.config_missing %}
+  <div class="text-sm rounded-md border border-red-400/60 bg-red-500/10 px-3 py-2.5
+              text-red-600 dark:text-red-400">
+    <strong>This profile is incomplete — scanning is disabled.</strong>
+    <ul class="list-disc pl-5 mt-1">
+      {% for m in stats.config_missing %}<li>{{ m }}</li>{% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  <div id="scanBanner" class="hidden text-sm rounded-md border border-border bg-muted px-3 py-2 text-foreground"></div>
+
+  <!-- ── Stat strip ─────────────────────────────────────────────────── -->
+  <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+    {% macro stat(label, value, id, tip) -%}
+    <div class="bg-card border border-border rounded-lg p-3">
+      <div class="relative group inline-block">
+        <span class="text-xs text-muted-foreground cursor-help underline decoration-dotted">{{ label }}</span>
+        <div class="absolute bottom-full mb-1 left-0 hidden group-hover:block z-50 w-60
+                    bg-card border border-border rounded-lg shadow-lg p-2.5 text-xs text-foreground">
+          {{ tip }}
+        </div>
+      </div>
+      <div class="text-lg font-semibold text-foreground" id="{{ id }}">{{ value }}</div>
+    </div>
+    {%- endmacro %}
+    {{ stat('To review', stats.matched, 'stMatched', 'Posts that cleared the relevance floor AND look like somewhere we would be welcome. This is your queue.') }}
+    {{ stat('Scanned', stats.total, 'stTotal', 'Every post held right now, matched or not. Older ones age out on the retention window.') }}
+    {{ stat('Replied', stats.posted, 'stPosted', 'Threads where you logged a reply. Kept permanently as the audit trail — never swept.') }}
+    <div class="bg-card border border-border rounded-lg p-3">
+      <div class="relative group inline-block">
+        <span class="text-xs text-muted-foreground cursor-help underline decoration-dotted">Subreddits</span>
+        <div class="absolute bottom-full mb-1 left-0 hidden group-hover:block z-50 w-60
+                    bg-card border border-border rounded-lg shadow-lg p-2.5 text-xs text-foreground">
+          Enabled subreddits read on each scan. Disabled ones stay in the list but are
+          skipped.
+        </div>
+      </div>
+      <div class="flex items-baseline gap-2">
+        <div class="text-lg font-semibold text-foreground" id="stSubs">{{ stats.subs }}</div>
+        <button onclick="RO.tab('discover')"
+          class="text-xs text-muted-foreground hover:text-foreground underline
+                 decoration-dotted whitespace-nowrap">find more</button>
+      </div>
+    </div>
+  </div>
+
+  {% if profile and stats.subs == 0 %}
+  <div class="text-sm rounded-md border border-orange-400/60 bg-orange-500/10 px-3 py-2.5
+              text-orange-600 dark:text-orange-400 flex flex-wrap items-center gap-2">
+    <span><b>This profile has no subreddits yet, so scans can't run.</b>
+      Discover proposes communities where this product's buyers hang out and scores
+      each one.</span>
+    <button onclick="RO.tab('discover')"
+      class="ml-auto px-3 py-1.5 rounded-md text-sm bg-brand text-brand-foreground
+             hover:opacity-90 whitespace-nowrap">🔎 Find subreddits</button>
+  </div>
+  {% endif %}
+
+  <!-- ── Tabs ───────────────────────────────────────────────────────── -->
+  <div class="flex gap-1 border-b border-border flex-wrap sticky top-0 z-20
+              bg-background pt-1">
+    {% for t, label in [('feed','📥 Feed'), ('discover','🔎 Discover'),
+                        ('subs','📂 Subreddits'), ('runs','🕒 Runs'),
+                        ('notify','🔔 Notifications'), ('how','ℹ️ How it works')] %}
+    <button data-tab="{{ t }}" onclick="RO.tab('{{ t }}')"
+      class="tabBtn px-3 py-2 text-sm border-b-2 -mb-px whitespace-nowrap
+             {% if t == 'feed' %}border-brand text-foreground font-medium
+             {% else %}border-transparent text-muted-foreground hover:text-foreground{% endif %}">
+      {{ label }}</button>
+    {% endfor %}
+  </div>
+
+  <!-- ══ FEED ═══════════════════════════════════════════════════════ -->
+  <div id="pane-feed" class="pane flex flex-col gap-3">
+    <div class="flex flex-wrap items-center gap-2 text-sm">
+      <select id="fStatus" onchange="RO.loadFeed()"
+        class="rounded-md border border-border bg-muted px-2 py-1.5 text-foreground">
+        <option value="new">New</option>
+        <option value="done">Replied</option>
+        <option value="dismissed">Dismissed</option>
+        <option value="any">Any status</option>
+      </select>
+      <select id="fWindow" onchange="RO.loadFeed()"
+        class="rounded-md border border-border bg-muted px-2 py-1.5 text-foreground">
+        <option value="1">Last 24h</option>
+        <option value="3">Last 3 days</option>
+        <option value="7" selected>Last 7 days</option>
+        <option value="14">Last 14 days</option>
+        <option value="0">All time</option>
+      </select>
+      <select id="fSub" onchange="RO.loadFeed()"
+        class="rounded-md border border-border bg-muted px-2 py-1.5 text-foreground">
+        <option value="">All subreddits</option>
+      </select>
+      <select id="fTopic" onchange="RO.loadFeed()"
+        class="rounded-md border border-border bg-muted px-2 py-1.5 text-foreground">
+        <option value="">All topics</option>
+        {% for t in profile.topics %}
+        <option value="{{ t.id }}">{{ t.emoji }} {{ t.label }}</option>
+        {% endfor %}
+      </select>
+      <select id="fSort" onchange="RO.loadFeed()"
+        class="rounded-md border border-border bg-muted px-2 py-1.5 text-foreground">
+        <option value="relevance">Best match first</option>
+        <option value="newest">Newest first</option>
+        <option value="oldest">Oldest first</option>
+      </select>
+      <label class="flex items-center gap-1.5 text-foreground">
+        <input type="checkbox" id="fMatched" checked onchange="RO.loadFeed()">
+        <span class="relative group">
+          <span class="cursor-help underline decoration-dotted">Matched only</span>
+          <span class="absolute bottom-full mb-1 left-0 hidden group-hover:block z-50 w-64
+                       bg-card border border-border rounded-lg shadow-lg p-2.5 text-xs
+                       text-foreground font-normal">
+            Untick to see everything the scan scored, including the rejects — useful
+            for checking the scorer isn't being too strict.
+          </span>
+        </span>
+      </label>
+      <input id="fQ" placeholder="Search title/body…" oninput="RO.debounced()"
+        class="rounded-md border border-border bg-muted px-2 py-1.5 text-foreground flex-1 min-w-[140px]">
+      <button onclick="RO.openSweep()"
+        class="px-2.5 py-1.5 rounded-md border border-border hover:border-ring text-foreground">🧹 Sweep</button>
+    </div>
+
+    <div id="bulkBar" class="hidden sticky top-0 z-30 bg-card border border-border rounded-lg
+         px-3 py-2 flex items-center gap-2 text-sm shadow">
+      <span id="bulkCount" class="text-foreground font-medium">0 selected</span>
+      <button onclick="RO.selectAllVisible()" class="text-muted-foreground hover:text-foreground underline">Select all visible</button>
+      <button onclick="RO.clearSel()" class="text-muted-foreground hover:text-foreground underline">Clear</button>
+      <button onclick="RO.bulkDelete()"
+        class="ml-auto px-3 py-1.5 rounded-md bg-red-500/10 text-red-600 dark:text-red-400
+               border border-red-400/40 hover:border-red-400">Delete selected</button>
+    </div>
+
+    <div id="feedMeta" class="text-xs text-muted-foreground"></div>
+    <div id="feed" class="flex flex-col gap-3"></div>
+  </div>
+
+  <!-- ══ DISCOVER ═══════════════════════════════════════════════════ -->
+  <div id="pane-discover" class="pane hidden flex-col gap-3">
+    <div class="bg-card border border-border rounded-lg p-4">
+      <h3 class="text-sm font-semibold text-foreground">Find subreddits worth monitoring</h3>
+      <p class="text-sm text-muted-foreground mt-1">
+        Proposes communities where this profile's buyers actually spend time, then
+        checks each one on Reddit and scores it twice: <b>audience fit</b> (does the
+        product match who's there?) and <b>promo tolerance</b> (would a tool mention
+        get you banned?). Ranked <code class="text-xs">0.7 × fit + 0.3 × promo</code> —
+        audience first.
+      </p>
+      <p class="text-xs text-muted-foreground mt-2">
+        Takes a few minutes: Reddit rate-limits us hard, so candidates are checked
+        one at a time rather than in parallel.
+      </p>
+      <div class="flex items-center gap-2 mt-3">
+        <button onclick="RO.discover()" id="discBtn"
+          class="px-3 py-1.5 rounded-md text-sm bg-brand text-brand-foreground hover:opacity-90">
+          🚀 Find subreddits</button>
+        <select id="discN" class="rounded-md border border-border bg-muted px-2 py-1.5 text-sm text-foreground">
+          <option value="15">15 candidates</option>
+          <option value="30" selected>30 candidates</option>
+          <option value="45">45 candidates</option>
+        </select>
+        <span id="discStatus" class="text-xs text-muted-foreground"></span>
+      </div>
+    </div>
+
+    <div id="discRecBar" class="hidden bg-card border border-border rounded-lg px-3 py-2
+         flex items-center gap-2 text-sm flex-wrap">
+      <span class="text-foreground" id="discRecText"></span>
+      <button onclick="RO.bulkAdd()" id="discAddBtn"
+        class="ml-auto px-3 py-1.5 rounded-md bg-brand text-brand-foreground hover:opacity-90">
+        Add selected</button>
+    </div>
+    <div id="discResults" class="flex flex-col gap-2"></div>
+  </div>
+
+  <!-- ══ SUBREDDITS ═════════════════════════════════════════════════ -->
+  <div id="pane-subs" class="pane hidden flex-col gap-3">
+    <div class="flex flex-wrap items-center gap-2 text-sm">
+      <input id="newSub" placeholder="Add a subreddit, e.g. r/SEO"
+        onkeydown="if(event.key==='Enter') RO.addSub()"
+        class="rounded-md border border-border bg-muted px-2 py-1.5 text-foreground flex-1 min-w-[160px]">
+      <button onclick="RO.addSub()" id="addSubBtn"
+        class="px-3 py-1.5 rounded-md bg-brand text-brand-foreground hover:opacity-90">Add</button>
+      <select id="subSort" onchange="RO.renderSubs()"
+        class="rounded-md border border-border bg-muted px-2 py-1.5 text-foreground">
+        <option value="combined">Sort: best overall</option>
+        <option value="fit">Sort: audience fit</option>
+        <option value="promo">Sort: promo tolerance</option>
+        <option value="name">Sort: name</option>
+      </select>
+      <select id="subFilter" onchange="RO.renderSubs()"
+        class="rounded-md border border-border bg-muted px-2 py-1.5 text-foreground">
+        <option value="all">All</option>
+        <option value="enabled">Enabled only</option>
+        <option value="unaudited">Not yet audited</option>
+      </select>
+    </div>
+    <p class="text-xs text-muted-foreground">
+      Adding a subreddit audits it immediately (~10s). Subscriber counts read
+      “unknown” because Reddit blocks that endpoint from servers — the audit uses
+      the description and recent posts instead.
+    </p>
+    <div id="subsEmpty" class="hidden text-sm rounded-md border border-orange-400/60
+         bg-orange-500/10 px-3 py-2.5 text-orange-600 dark:text-orange-400">
+      <b>This profile has no subreddits, so scans can't run.</b>
+      Add one above, or let Discover propose communities that match this product's
+      buyers.
+      <button onclick="RO.tab('discover')"
+        class="mt-2 block px-3 py-1.5 rounded-md text-sm bg-brand text-brand-foreground
+               hover:opacity-90">Go to Discover</button>
+    </div>
+    <div id="subsList" class="flex flex-col gap-2"></div>
+  </div>
+
+  <!-- ══ RUNS ═══════════════════════════════════════════════════════ -->
+  <div id="pane-runs" class="pane hidden flex-col gap-3">
+    <p class="text-sm text-muted-foreground">
+      Every scan, newest first. A run where <b>no</b> subreddit could be read is
+      recorded as <b>failed</b>, not as a quiet day — a broken feed must never look
+      like “nothing happened on Reddit”.
+    </p>
+    <div id="runsList" class="flex flex-col gap-2"></div>
+  </div>
+
+  <!-- ══ NOTIFICATIONS ══════════════════════════════════════════════ -->
+  <div id="pane-notify" class="pane hidden flex-col gap-3">
+    <div class="bg-card border border-border rounded-lg p-4 flex flex-col gap-3 max-w-xl">
+      <h3 class="text-sm font-semibold text-foreground">Daily email digest</h3>
+
+      <div class="text-sm rounded-md border border-border bg-muted px-3 py-2.5">
+        <div class="text-xs text-muted-foreground">Digests go to</div>
+        {% if session_email %}
+        <div class="text-foreground font-medium" id="sessEmail"
+             data-email="{{ session_email }}">{{ session_email }}</div>
+        <div class="text-xs text-muted-foreground mt-1">
+          Read from your signed-in Console account — nothing to type, and no address
+          stored by this app.
+        </div>
+        {% else %}
+        <div class="text-red-600 dark:text-red-400">No address on your session</div>
+        <div class="text-xs text-muted-foreground mt-1">
+          Sign in again, or set an override below.
+        </div>
+        {% endif %}
+      </div>
+
+      <label class="flex items-center gap-2 text-sm text-foreground">
+        <input type="checkbox" id="nEnabled" {% if notify.enabled %}checked{% endif %}>
+        Email me a digest after each daily scan
+      </label>
+      <label class="flex items-center gap-2 text-sm text-foreground">
+        <input type="checkbox" id="nMatched" {% if notify.matched_only %}checked{% endif %}>
+        Only include posts that matched
+        <span class="relative group inline-block">
+          <span class="cursor-help text-muted-foreground">ⓘ</span>
+          <span class="absolute bottom-full mb-1 right-0 hidden group-hover:block z-50 w-64
+                       bg-card border border-border rounded-lg shadow-lg p-2.5 text-xs
+                       text-foreground font-normal">
+            Off means every scored post lands in your inbox, rejects included.
+            Usually far too noisy — leave this on.
+          </span>
+        </span>
+      </label>
+
+      <div class="text-sm rounded-md border border-blue-400/40 bg-blue-500/10 px-3 py-2
+                  text-blue-600 dark:text-blue-400">
+        Turning digests off does <b>not</b> stop scanning. Your feed keeps filling up;
+        you just won't be emailed about it.
+      </div>
+
+      <details class="text-sm">
+        <summary class="cursor-pointer text-muted-foreground hover:text-foreground">
+          Send to a different address instead</summary>
+        <div class="mt-2 flex flex-col gap-1.5">
+          <input id="nOverride" value="{{ notify.email_override }}"
+            placeholder="someone@yourcompany.com"
+            class="w-full rounded-md border border-border bg-muted px-2 py-1.5 text-sm text-foreground">
+          <p class="text-xs text-muted-foreground">
+            Must be a member of this workspace's organisation — the platform rejects
+            anything else. Leave empty to use your login address.
+          </p>
+        </div>
+      </details>
+
+      <div class="flex gap-2 items-center">
+        <button onclick="RO.saveNotify()" id="nSaveBtn"
+          class="px-4 py-2 rounded-md text-sm bg-brand text-brand-foreground hover:opacity-90">Save</button>
+        <button onclick="RO.testNotify()" id="nTestBtn"
+          class="px-4 py-2 rounded-md text-sm border border-border hover:border-ring text-foreground">
+          Send test email</button>
+        <span id="nStatus" class="text-xs text-muted-foreground"></span>
+      </div>
+      {% if notify.last_notified_at %}
+      <p class="text-xs text-muted-foreground">
+        Last digest sent {{ notify.last_notified_at[:16].replace('T',' ') }} UTC
+        · {{ notify.notify_count }} total</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- ══ HOW ════════════════════════════════════════════════════════ -->
+  <div id="pane-how" class="pane hidden flex-col gap-3">
+    <div class="bg-card border border-border rounded-lg p-4 text-sm text-foreground
+                flex flex-col gap-3 max-w-3xl">
+      <div>
+        <h3 class="font-semibold">What this app is for</h3>
+        <p class="text-muted-foreground mt-1">
+          Finding Reddit threads <b>published in the last day</b> where replying would
+          genuinely help someone — and where mentioning your product wouldn't be
+          obnoxious. It automates the "find the thread" step and stops there.
+        </p>
+      </div>
+      <div>
+        <h3 class="font-semibold">It never posts to Reddit</h3>
+        <p class="text-muted-foreground mt-1">
+          There is no write path to Reddit in this app, deliberately. Reddit
+          shadowbans accounts that post automated promotion. Every reply is copied by
+          you, pasted by you, and logged here afterwards for the audit trail.
+        </p>
+      </div>
+      <div>
+        <h3 class="font-semibold">How a post gets scored</h3>
+        <ol class="list-decimal pl-5 text-muted-foreground mt-1 space-y-1">
+          <li>Each enabled subreddit's newest posts are read from Reddit's Atom feed.</li>
+          <li>Anything already seen, or on the blocklist, is dropped.</li>
+          <li>The rest are scored in batches against this profile's brief and topics:
+              relevance 0–1, matched topics, a one-line reason, and whether a reply
+              would be welcome.</li>
+          <li><b>Brand floor</b> — any post literally naming your brand is forced to
+              relevance 1.0, whatever the model thought. Nobody wants to miss those.</li>
+          <li>A post is <b>matched</b> when it clears the relevance floor and the
+              model judged a reply welcome.</li>
+        </ol>
+      </div>
+      <div>
+        <h3 class="font-semibold">Why scans are slow</h3>
+        <p class="text-muted-foreground mt-1">
+          Reddit rate-limits this server's IP hard — measured, roughly half of all
+          requests get a 429. Subreddits are therefore read one at a time with patient
+          retries, which takes about a minute each. Fetching in parallel finishes
+          sooner but silently loses half your subreddits, so it isn't worth it.
+        </p>
+      </div>
+      <div>
+        <h3 class="font-semibold">The three reply variants</h3>
+        <ul class="list-disc pl-5 text-muted-foreground mt-1 space-y-1">
+          <li><b>Helpful</b> — answers the question, no product mention at all.</li>
+          <li><b>Soft</b> — answers first, one casual "fwiw" line and the link at the end.</li>
+          <li><b>Pitch</b> — a direct recommendation, still framed around the OP's problem.</li>
+        </ul>
+        <p class="text-muted-foreground mt-1">
+          <b>Refine</b> under any variant rewrites just that one from a free-text
+          instruction ("shorter", "less salesy", "lean into the agency angle").
+        </p>
+      </div>
+      <div>
+        <h3 class="font-semibold">Retention</h3>
+        <p class="text-muted-foreground mt-1">
+          Posts age out after this profile's retention window
+          ({{ profile.retention_days }} days) and their IDs go on the blocklist so
+          they can't be re-ingested. Two exceptions are kept forever: threads you
+          replied to, and threads naming your brand.
+        </p>
+      </div>
+      <div>
+        <h3 class="font-semibold">Where this sits next to Ranking Reddits</h3>
+        <p class="text-muted-foreground mt-1">
+          A companion app, <b>Ranking Reddits</b>, finds threads that <b>rank in
+          Google</b> for your keywords —
+          evergreen, often months old, a permanent library to mine for content.
+          This app finds threads <b>posted hours ago</b> that are still live enough to
+          reply to. Same source, opposite half-life.
+        </p>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+<!-- ── Sweep modal ──────────────────────────────────────────────────── -->
+<div id="sweepModal" class="hidden fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4"
+     onclick="if(event.target===this) RO.closeSweep()">
+  <div class="bg-card border border-border rounded-xl shadow-xl w-full max-w-md p-6 flex flex-col gap-4">
+    <h3 class="text-base font-semibold text-foreground">Sweep low-value posts</h3>
+    <p class="text-sm text-muted-foreground">
+      Removes posts matching <b>both</b> conditions and blocklists them so they can't
+      come back. Threads you replied to and threads naming your brand are always kept.
+    </p>
+    <label class="text-sm text-foreground">
+      Relevance at or below <span id="swRelVal" class="font-medium">0.40</span>
+      <input type="range" id="swRel" min="0" max="1" step="0.05" value="0.4"
+        oninput="RO.sweepPreview()" class="w-full mt-1">
+    </label>
+    <label class="text-sm text-foreground">
+      Older than <span id="swDayVal" class="font-medium">3</span> days
+      <input type="range" id="swDays" min="0" max="30" step="1" value="3"
+        oninput="RO.sweepPreview()" class="w-full mt-1">
+    </label>
+    <div class="text-sm rounded-md border border-border bg-muted px-3 py-2 text-foreground"
+         id="swCount">—</div>
+    <div class="flex gap-2 justify-end">
+      <button onclick="RO.closeSweep()"
+        class="px-4 py-2 rounded-md text-sm border border-border hover:border-ring text-foreground">Cancel</button>
+      <button onclick="RO.doSweep()" id="swBtn"
+        class="px-4 py-2 rounded-md text-sm bg-red-500/10 text-red-600 dark:text-red-400
+               border border-red-400/40 hover:border-red-400">Sweep them</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Log-reply modal ──────────────────────────────────────────────── -->
+<div id="logModal" class="hidden fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4"
+     onclick="if(event.target===this) RO.closeLog()">
+  <div class="bg-card border border-border rounded-xl shadow-xl w-full max-w-lg p-6 flex flex-col gap-4">
+    <h3 class="text-base font-semibold text-foreground">Log the reply you posted</h3>
+    <p class="text-sm text-muted-foreground">
+      This records what you posted by hand. It does not post anything — paste the
+      link to your comment so the thread has an audit trail.
+    </p>
+    <label class="text-sm text-foreground">Link to your comment
+      <input id="logUrl" placeholder="https://www.reddit.com/r/…/comment/…"
+        class="mt-1 w-full rounded-md border border-border bg-muted p-2 text-sm text-foreground"></label>
+    <label class="text-sm text-foreground">What you posted (optional)
+      <textarea id="logBody" rows="5"
+        class="mt-1 w-full rounded-md border border-border bg-muted p-2 text-sm text-foreground resize-none"></textarea></label>
+    <div id="logErr" class="hidden text-sm text-red-600 dark:text-red-400"></div>
+    <div class="flex gap-2 justify-end">
+      <button onclick="RO.closeLog()"
+        class="px-4 py-2 rounded-md text-sm border border-border hover:border-ring text-foreground">Cancel</button>
+      <button onclick="RO.saveLog()" id="logBtn"
+        class="px-4 py-2 rounded-md text-sm bg-brand text-brand-foreground hover:opacity-90">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Profile modal ────────────────────────────────────────────────── -->
+<div id="profModal" class="hidden fixed inset-0 z-50 bg-black/60 flex items-start justify-center p-2 sm:p-4 overflow-y-auto"
+     onclick="if(event.target===this) RO.closeProfile()">
+  <div class="bg-card border border-border rounded-xl shadow-xl w-full max-w-2xl my-4 p-6 flex flex-col gap-4">
+    <h3 class="text-base font-semibold text-foreground" id="profTitle">Watch profile</h3>
+
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <label class="text-sm text-foreground">Profile name
+        <input id="pName" class="mt-1 w-full rounded-md border border-border bg-muted p-2 text-sm text-foreground"></label>
+      <label class="text-sm text-foreground">Product name
+        <input id="pProduct" class="mt-1 w-full rounded-md border border-border bg-muted p-2 text-sm text-foreground"></label>
+    </div>
+    <label class="text-sm text-foreground">Product URL
+      <input id="pUrl" placeholder="https://…"
+        class="mt-1 w-full rounded-md border border-border bg-muted p-2 text-sm text-foreground"></label>
+
+    <label class="text-sm text-foreground">Product brief
+      <span class="block text-xs text-muted-foreground">
+        Grounds every relevance score and every draft. Be specific about what it does,
+        who it's for and what it costs. A stale brief quietly degrades everything.</span>
+      <textarea id="pBrief" rows="7"
+        class="mt-1 w-full rounded-md border border-border bg-muted p-2 text-sm text-foreground resize-none"></textarea></label>
+    <div id="pBriefAge" class="text-xs text-muted-foreground -mt-2"></div>
+
+    <label class="text-sm text-foreground">Target audience
+      <span class="block text-xs text-muted-foreground">Who should be in the subreddit for it to be worth monitoring.</span>
+      <textarea id="pAudience" rows="3"
+        class="mt-1 w-full rounded-md border border-border bg-muted p-2 text-sm text-foreground resize-none"></textarea></label>
+
+    <label class="text-sm text-foreground">Brand-mention pattern
+      <span class="block text-xs text-muted-foreground">
+        A post matching this is always surfaced, whatever the scorer thought. Regular
+        expression, case-insensitive. Keep it to names nobody else uses — a generic
+        product name floods the feed with false positives.</span>
+      <input id="pBrand" placeholder="\byourbrand\b"
+        class="mt-1 w-full rounded-md border border-border bg-muted p-2 text-sm font-mono text-foreground"></label>
+
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <label class="text-sm text-foreground">Relevance floor
+        <input id="pFloor" type="number" min="0" max="1" step="0.05"
+          class="mt-1 w-full rounded-md border border-border bg-muted p-2 text-sm text-foreground"></label>
+      <label class="text-sm text-foreground">Posts per sub
+        <input id="pPerSub" type="number" min="5" max="100"
+          class="mt-1 w-full rounded-md border border-border bg-muted p-2 text-sm text-foreground"></label>
+      <label class="text-sm text-foreground">Lookback (h)
+        <input id="pLookback" type="number" min="1" max="336"
+          class="mt-1 w-full rounded-md border border-border bg-muted p-2 text-sm text-foreground"></label>
+      <label class="text-sm text-foreground">Keep (days)
+        <input id="pRetention" type="number" min="1" max="3650"
+          class="mt-1 w-full rounded-md border border-border bg-muted p-2 text-sm text-foreground"></label>
+    </div>
+
+    <div class="border border-border rounded-lg p-3 flex flex-col gap-2">
+      <div class="flex items-center gap-2 flex-wrap">
+        <span class="text-sm font-medium text-foreground">Topic filters</span>
+        <span class="relative group inline-block">
+          <span class="cursor-help text-muted-foreground text-xs">ⓘ</span>
+          <span class="absolute bottom-full mb-1 left-0 hidden group-hover:block z-50 w-72
+                       bg-card border border-border rounded-lg shadow-lg p-2.5 text-xs
+                       text-foreground font-normal">
+            Topics do two jobs: they're what posts get scored against, and each one
+            carries the capability line the drafter leads with. They must describe
+            <b>this</b> product — topics copied from another product make the reply
+            drafts pitch the wrong thing.
+          </span>
+        </span>
+        <span id="pTopicCount" class="text-xs text-muted-foreground"></span>
+        <button type="button" onclick="RO.genTopics()" id="pTopicBtn"
+          class="ml-auto text-xs px-2 py-1 rounded border border-border hover:border-ring
+                 text-foreground">✨ Generate from the brief</button>
+      </div>
+      <div id="pTopicList" class="flex flex-col gap-1 max-h-48 overflow-y-auto"></div>
+    </div>
+
+    <div class="border border-border rounded-lg p-3 flex flex-col gap-2">
+      <div class="flex items-center gap-2 flex-wrap">
+        <span class="text-sm font-medium text-foreground">Subreddits</span>
+        <span id="pSubsCount" class="text-xs text-muted-foreground"></span>
+      </div>
+      <div id="pSubsWrap">
+        <label class="text-xs text-muted-foreground">
+          Add some now — comma separated, e.g. <code>SEO, SaaS, marketing</code>
+          <input id="pSubs" placeholder="SEO, SaaS, marketing"
+            class="mt-1 w-full rounded-md border border-border bg-muted p-2 text-sm text-foreground"></label>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <button type="button" onclick="RO.gotoTab('subs')"
+          class="text-xs px-2.5 py-1.5 rounded border border-border hover:border-ring
+                 text-foreground">📂 Manage the full list</button>
+        <button type="button" onclick="RO.gotoTab('discover')"
+          class="text-xs px-2.5 py-1.5 rounded border border-border hover:border-ring
+                 text-foreground">🔎 Let Discover find some</button>
+      </div>
+      <p class="text-xs text-muted-foreground">
+        Both open a tab behind this dialog. <b>Discover</b> proposes communities that
+        match this product's buyers and scores each one; <b>Manage</b> is the plain
+        add/remove list.
+      </p>
+    </div>
+
+    <div id="profErr" class="hidden text-sm text-red-600 dark:text-red-400"></div>
+    <div class="flex gap-2 justify-between">
+      <button onclick="RO.deleteProfile()" id="profDel"
+        class="px-3 py-2 rounded-md text-sm border border-border hover:border-ring
+               text-red-600 dark:text-red-400">Delete profile</button>
+      <div class="flex gap-2">
+        <button onclick="RO.closeProfile()"
+          class="px-4 py-2 rounded-md text-sm border border-border hover:border-ring text-foreground">Cancel</button>
+        <button onclick="RO.saveProfile()" id="profSave"
+          class="px-4 py-2 rounded-md text-sm bg-brand text-brand-foreground hover:opacity-90">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const RO = (() => {
+  const U = {
+    posts:    "{{ url_for('reddit_outpost.api_posts') }}",
+    stats:    "{{ url_for('reddit_outpost.api_stats') }}",
+    scan:     "{{ url_for('reddit_outpost.api_scan') }}",
+    runs:     "{{ url_for('reddit_outpost.api_runs') }}",
+    subs:     "{{ url_for('reddit_outpost.api_subreddits') }}",
+    subsBulk: "{{ url_for('reddit_outpost.api_subreddits_bulk') }}",
+    discover: "{{ url_for('reddit_outpost.api_discover') }}",
+    block:    "{{ url_for('reddit_outpost.api_posts_block') }}",
+    sweepPrev:"{{ url_for('reddit_outpost.api_sweep_preview') }}",
+    sweep:    "{{ url_for('reddit_outpost.api_sweep') }}",
+    notify:   "{{ url_for('reddit_outpost.api_notify_get') }}",
+    notifyTest:"{{ url_for('reddit_outpost.api_notify_test') }}",
+    profiles: "{{ url_for('reddit_outpost.api_profiles') }}",
+    suggestTopics: "{{ url_for('reddit_outpost.api_suggest_topics') }}",
+    job:      (id) => "{{ url_for('reddit_outpost.api_job', job_id='__J__') }}".replace('__J__', id),
+    drafts:   (id) => "{{ url_for('reddit_outpost.api_generate_drafts', post_id='__P__') }}".replace('__P__', id),
+    refine:   (id) => "{{ url_for('reddit_outpost.api_refine_draft', draft_id='__D__') }}".replace('__D__', id),
+    logAct:   (id) => "{{ url_for('reddit_outpost.api_log_action', post_id='__P__') }}".replace('__P__', id),
+    pStatus:  (id) => "{{ url_for('reddit_outpost.api_post_status', post_id='__P__') }}".replace('__P__', id),
+    subAudit: (id) => "{{ url_for('reddit_outpost.api_subreddit_audit', sid='__S__') }}".replace('__S__', id),
+    subPatch: (id) => "{{ url_for('reddit_outpost.api_subreddit_patch', sid='__S__') }}".replace('__S__', id),
+    subDel:   (id) => "{{ url_for('reddit_outpost.api_subreddit_delete', sid='__S__') }}".replace('__S__', id),
+    profUpd:  (id) => "{{ url_for('reddit_outpost.api_profile_update', pid='__P__') }}".replace('__P__', id),
+    profDel:  (id) => "{{ url_for('reddit_outpost.api_profile_delete', pid='__P__') }}".replace('__P__', id),
+  };
+  const P = {{ (profile.id if profile else '') | tojson }};
+  const TOPICS = {{ (profile.topics if profile else []) | tojson }};
+  const FOCUS = {{ focus | tojson }}, AUTOGEN = {{ (autogen == '1') | tojson }};
+  let subsCache = {{ subreddits | tojson }};
+  let discCands = [], sel = new Set(), timer = null, logPostId = null, profMode = 'edit';
+  let profTopics = [];
+
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const jget = (u) => fetch(u).then(r => r.json());
+  const jpost = (u, b) => fetch(u, {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(b || {})}).then(r => r.json());
+  const qs = (id) => document.getElementById(id);
+
+  function gotoTab(name) {
+    closeProfile();
+    tab(name);
+  }
+
+  function tab(name) {
+    document.querySelectorAll('.pane').forEach(p => p.classList.add('hidden'));
+    const pane = qs('pane-' + name);
+    pane.classList.remove('hidden');
+    pane.classList.add('flex');
+    document.querySelectorAll('.tabBtn').forEach(b => {
+      const on = b.dataset.tab === name;
+      b.className = 'tabBtn px-3 py-2 text-sm border-b-2 -mb-px whitespace-nowrap ' +
+        (on ? 'border-brand text-foreground font-medium'
+            : 'border-transparent text-muted-foreground hover:text-foreground');
+    });
+    if (name === 'subs') renderSubs();
+    if (name === 'runs') loadRuns();
+    const strip = document.querySelector('.tabBtn');
+    if (strip) strip.scrollIntoView({behavior: 'smooth', block: 'start'});
+  }
+
+  // ── feed ───────────────────────────────────────────────────────────
+  function debounced() { clearTimeout(timer); timer = setTimeout(loadFeed, 350); }
+
+  async function loadFeed() {
+    if (!P) return;
+    const p = new URLSearchParams({
+      p: P, status: qs('fStatus').value, window_days: qs('fWindow').value,
+      subreddit: qs('fSub').value, topic: qs('fTopic').value,
+      matched_only: qs('fMatched').checked, q: qs('fQ').value,
+      sort: qs('fSort').value, limit: 60,
+    });
+    qs('feed').innerHTML = '<div class="text-sm text-muted-foreground p-4">Loading…</div>';
+    const d = await jget(U.posts + '?' + p);
+    renderFeed(d.posts || [], d.total || 0);
+  }
+
+  function topicPill(id) {
+    const t = TOPICS.find(x => x.id === id);
+    return t ? `${t.emoji} ${esc(t.label)}` : esc(id);
+  }
+
+  function relColor(r) {
+    if (r === null || r === undefined) return 'text-muted-foreground';
+    if (r >= 0.7) return 'text-green-700 dark:text-green-400';
+    if (r >= 0.5) return 'text-blue-600 dark:text-blue-400';
+    return 'text-muted-foreground';
+  }
+
+  function renderFeed(posts, total) {
+    qs('feedMeta').textContent = posts.length
+      ? `Showing ${posts.length} of ${total}` : '';
+    if (!posts.length) {
+      qs('feed').innerHTML = `<div class="text-sm text-muted-foreground bg-card border
+        border-border rounded-lg p-6 text-center">Nothing here yet. Run a scan, or
+        widen the filters.</div>`;
+      return;
+    }
+    qs('feed').innerHTML = posts.map(p => {
+      const age = p.created_utc ? timeAgo(p.created_utc) : 'date unknown';
+      const eng = (p.upvotes === null || p.upvotes === undefined)
+        ? '' : ` · ▲${p.upvotes}${p.num_comments != null ? ' · 💬' + p.num_comments : ''}`;
+      const drafts = (p.drafts || []).map(d => draftBlock(d)).join('');
+      return `
+      <div class="bg-card border border-border rounded-lg p-3 flex flex-col gap-2"
+           id="card-${p.id}">
+        <div class="flex items-start gap-2">
+          ${p.status === 'done' ? '' :
+            `<input type="checkbox" class="mt-1 selBox" data-id="${p.id}"
+                    onchange="RO.toggleSel('${p.id}', this.checked)">`}
+          <div class="min-w-0 flex-1">
+            <div class="flex items-center gap-2 flex-wrap text-xs text-muted-foreground">
+              <span class="font-medium text-foreground">r/${esc(p.subreddit)}</span>
+              <span>${esc(p.author ? 'u/' + p.author : '')}</span>
+              <span>${age}${eng}</span>
+              ${p.brand_mention ? `<span class="px-1.5 py-0.5 rounded bg-orange-500/10
+                text-orange-600 dark:text-orange-400">✨ names your brand</span>` : ''}
+              ${p.status === 'done' ? `<span class="px-1.5 py-0.5 rounded bg-green-500/10
+                text-green-700 dark:text-green-400">replied</span>` : ''}
+            </div>
+            <a href="${esc(p.url)}" target="_blank" rel="noopener"
+               class="block text-sm font-medium text-foreground hover:underline mt-0.5">
+               ${esc(p.title)}</a>
+            <div class="flex items-center gap-2 flex-wrap mt-1">
+              <span class="text-sm font-semibold ${relColor(p.relevance)}">
+                ${p.relevance == null ? 'unscored' : Math.round(p.relevance * 100) + '%'}</span>
+              ${(p.topics || []).map(t => `<span class="text-xs px-1.5 py-0.5 rounded
+                bg-muted text-foreground">${topicPill(t)}</span>`).join('')}
+            </div>
+            ${p.reasoning ? `<p class="text-xs text-muted-foreground mt-1">
+              ${esc(p.reasoning)}</p>` : ''}
+            ${p.selftext ? `<p class="text-xs text-muted-foreground mt-1 line-clamp-3">
+              ${esc(p.selftext.slice(0, 300))}${p.selftext.length > 300 ? '…' : ''}</p>` : ''}
+          </div>
+        </div>
+        <div class="flex items-center gap-2 flex-wrap text-xs">
+          <button onclick="RO.genDrafts('${p.id}')" id="gen-${p.id}"
+            class="px-2.5 py-1.5 rounded-md bg-brand text-brand-foreground hover:opacity-90">
+            ${(p.drafts || []).length ? '✨ Regenerate replies' : '✨ Generate replies'}</button>
+          <button onclick="RO.openLog('${p.id}')"
+            class="px-2.5 py-1.5 rounded-md border border-border hover:border-ring text-foreground">
+            Log “I posted this”</button>
+          <button onclick="RO.dismiss('${p.id}')"
+            class="px-2.5 py-1.5 rounded-md border border-border hover:border-ring text-muted-foreground">
+            Dismiss</button>
+          <button onclick="RO.del('${p.id}')"
+            class="px-2.5 py-1.5 rounded-md border border-border hover:border-red-400
+                   text-red-600 dark:text-red-400 ml-auto">Delete</button>
+        </div>
+        <div id="drafts-${p.id}" class="flex flex-col gap-2">${drafts}</div>
+        ${p.drafts_error ? `<div class="text-xs text-red-600 dark:text-red-400">
+          ${esc(p.drafts_error)}</div>` : ''}
+      </div>`;
+    }).join('');
+    if (FOCUS) focusCard();
+  }
+
+  const VARIANT_LABEL = {helpful: '🤝 Helpful — no product mention',
+                         soft: '💬 Soft — one line at the end',
+                         pitch: '🎯 Pitch — direct recommendation'};
+
+  function draftBlock(d) {
+    return `
+    <div class="border border-border rounded-md p-2.5 bg-muted flex flex-col gap-1.5"
+         id="draft-${d.id}">
+      <div class="flex items-center gap-2">
+        <span class="text-xs font-medium text-foreground">${VARIANT_LABEL[d.variant] || d.variant}</span>
+        <button onclick="RO.copy('${d.id}')"
+          class="ml-auto text-xs px-2 py-1 rounded border border-border hover:border-ring
+                 text-foreground">Copy</button>
+      </div>
+      <div class="text-sm text-foreground whitespace-pre-wrap" id="body-${d.id}">${esc(d.body)}</div>
+      ${d.refine_note ? `<div class="text-xs text-muted-foreground">
+        revised: ${esc(d.refine_note)}</div>` : ''}
+      <div class="flex gap-1.5">
+        <input id="ref-${d.id}" placeholder="Refine: shorter, less salesy, …"
+          onkeydown="if(event.key==='Enter') RO.refine('${d.id}')"
+          class="flex-1 rounded border border-border bg-card px-2 py-1 text-xs text-foreground">
+        <button onclick="RO.refine('${d.id}')" id="refbtn-${d.id}"
+          class="text-xs px-2 py-1 rounded border border-border hover:border-ring text-foreground">🔄</button>
+      </div>
+    </div>`;
+  }
+
+  function timeAgo(iso) {
+    const s = (Date.now() - new Date(iso).getTime()) / 1000;
+    if (s < 3600) return Math.round(s / 60) + 'm ago';
+    if (s < 86400) return Math.round(s / 3600) + 'h ago';
+    return Math.round(s / 86400) + 'd ago';
+  }
+
+  async function copy(did) {
+    const t = qs('body-' + did).textContent;
+    try { await navigator.clipboard.writeText(t); flash('Copied — paste it into Reddit yourself'); }
+    catch (e) { flash('Select and copy manually'); }
+  }
+
+  function flash(msg) {
+    const b = qs('scanBanner');
+    b.textContent = msg; b.classList.remove('hidden');
+    setTimeout(() => b.classList.add('hidden'), 4000);
+  }
+
+  async function genDrafts(pid) {
+    const btn = qs('gen-' + pid);
+    btn.disabled = true; btn.textContent = 'Writing…';
+    const r = await jpost(U.drafts(pid));
+    if (r.error) { btn.disabled = false; btn.textContent = '✨ Generate replies';
+                   flash(r.error); return; }
+    poll(r.job_id, (j) => {
+      btn.disabled = false; btn.textContent = '✨ Regenerate replies';
+      if (j.status === 'failed') { flash('Draft failed: ' + (j.error || '')); return; }
+      loadFeed();
+    }, (j) => { btn.textContent = j.progress; });
+  }
+
+  async function refine(did) {
+    const note = qs('ref-' + did).value.trim();
+    if (!note) return;
+    const btn = qs('refbtn-' + did);
+    btn.disabled = true; btn.textContent = '…';
+    const r = await jpost(U.refine(did), {note});
+    if (r.error) { btn.disabled = false; btn.textContent = '🔄'; flash(r.error); return; }
+    poll(r.job_id, () => { btn.disabled = false; btn.textContent = '🔄'; loadFeed(); });
+  }
+
+  function poll(jobId, done, onTick) {
+    const t = setInterval(async () => {
+      const j = await jget(U.job(jobId));
+      if (j.error === 'not_found') {
+        // Jobs are in-memory; a Console restart (any file edit) drops them. The
+        // work may well have finished — just say so rather than spinning forever.
+        clearInterval(t);
+        done({status: 'failed', error: 'The Console restarted while this was '
+              + 'running, so progress was lost. Anything already saved is kept — '
+              + 'reload the page, and re-run if it did not finish.'});
+        return;
+      }
+      if (onTick && j.progress) onTick(j);
+      if (j.status === 'completed' || j.status === 'failed') {
+        clearInterval(t); done(j);
+      }
+    }, 2500);
+  }
+
+  // ── selection + delete ─────────────────────────────────────────────
+  function toggleSel(id, on) {
+    on ? sel.add(id) : sel.delete(id);
+    qs('bulkCount').textContent = sel.size + ' selected';
+    qs('bulkBar').classList.toggle('hidden', sel.size === 0);
+  }
+  function selectAllVisible() {
+    document.querySelectorAll('.selBox').forEach(b => { b.checked = true; sel.add(b.dataset.id); });
+    toggleSel(null, true);
+  }
+  function clearSel() {
+    sel.clear();
+    document.querySelectorAll('.selBox').forEach(b => b.checked = false);
+    qs('bulkBar').classList.add('hidden');
+  }
+  async function bulkDelete() {
+    if (!sel.size) return;
+    if (!confirm(`Delete ${sel.size} post(s)?\n\nThey're blocklisted so a later scan `
+                 + `can't bring them back. This can't be undone.`)) return;
+    const r = await jpost(U.block, {p: P, post_ids: [...sel], reason: 'deleted by hand'});
+    clearSel(); flash(`Removed ${r.removed || 0}`); loadFeed(); refreshStats();
+  }
+  async function del(id) {
+    if (!confirm('Delete this post and never show it again?')) return;
+    await jpost(U.block, {p: P, post_ids: [id], reason: 'deleted by hand'});
+    loadFeed(); refreshStats();
+  }
+  async function dismiss(id) {
+    await jpost(U.pStatus(id), {status: 'dismissed'});
+    loadFeed(); refreshStats();
+  }
+
+  // ── log reply ──────────────────────────────────────────────────────
+  function openLog(pid) {
+    logPostId = pid;
+    qs('logUrl').value = ''; qs('logBody').value = '';
+    qs('logErr').classList.add('hidden');
+    qs('logModal').classList.remove('hidden');
+  }
+  const closeLog = () => qs('logModal').classList.add('hidden');
+  async function saveLog() {
+    const btn = qs('logBtn'); btn.disabled = true;
+    const r = await jpost(U.logAct(logPostId), {
+      p: P, comment_url: qs('logUrl').value.trim(), body: qs('logBody').value});
+    btn.disabled = false;
+    if (r.error) { const e = qs('logErr'); e.classList.remove('hidden');
+                   e.textContent = r.error; return; }
+    closeLog(); loadFeed(); refreshStats();
+  }
+
+  // ── sweep ──────────────────────────────────────────────────────────
+  function openSweep() { qs('sweepModal').classList.remove('hidden'); sweepPreview(); }
+  const closeSweep = () => qs('sweepModal').classList.add('hidden');
+  async function sweepPreview() {
+    const rel = qs('swRel').value, days = qs('swDays').value;
+    qs('swRelVal').textContent = Number(rel).toFixed(2);
+    qs('swDayVal').textContent = days;
+    const d = await jget(U.sweepPrev + `?p=${P}&max_relevance=${rel}&older_than_days=${days}`);
+    qs('swCount').textContent = (d.count || 0) + ' post(s) match — they would be removed';
+  }
+  async function doSweep() {
+    const btn = qs('swBtn'); btn.disabled = true; btn.textContent = 'Sweeping…';
+    const r = await jpost(U.sweep, {p: P, max_relevance: parseFloat(qs('swRel').value),
+                                    older_than_days: parseInt(qs('swDays').value, 10)});
+    btn.disabled = false; btn.textContent = 'Sweep them';
+    closeSweep(); flash(`Swept ${r.removed || 0}`); loadFeed(); refreshStats();
+  }
+
+  // ── scan ───────────────────────────────────────────────────────────
+  async function scan() {
+    const btn = qs('scanBtn'); btn.disabled = true; btn.textContent = 'Scanning…';
+    const r = await jpost(U.scan, {p: P});
+    if (r.error) {
+      btn.disabled = false; btn.textContent = 'Scan now';
+      flash((r.missing || [r.error]).join(' · ')); return;
+    }
+    const b = qs('scanBanner'); b.classList.remove('hidden');
+    b.textContent = 'Starting… Reddit rate-limits us, so this takes a few minutes.';
+    poll(r.job_id, (j) => {
+      btn.disabled = false; btn.textContent = 'Scan now';
+      b.textContent = j.status === 'failed' ? ('Scan failed: ' + (j.error || ''))
+                                            : ('Done — ' + j.progress);
+      setTimeout(() => b.classList.add('hidden'), 8000);
+      loadFeed(); refreshStats();
+    }, (j) => { b.textContent = j.progress; });
+  }
+
+  async function refreshStats() {
+    const s = await jget(U.stats + '?p=' + encodeURIComponent(P));
+    qs('stMatched').textContent = s.matched;
+    qs('stTotal').textContent = s.total;
+    qs('stPosted').textContent = s.posted;
+    qs('stSubs').textContent = s.subs;
+  }
+
+  // ── runs ───────────────────────────────────────────────────────────
+  async function loadRuns() {
+    const d = await jget(U.runs + '?p=' + encodeURIComponent(P));
+    const runs = d.runs || [];
+    qs('runsList').innerHTML = runs.length ? runs.map(r => {
+      const bad = r.status === 'failed';
+      const errs = (r.log || []).filter(e => e.error);
+      return `
+      <div class="bg-card border border-border rounded-lg p-3 text-sm">
+        <div class="flex items-center gap-2 flex-wrap">
+          <span class="px-1.5 py-0.5 rounded text-xs ${bad
+            ? 'bg-red-500/10 text-red-600 dark:text-red-400'
+            : 'bg-green-500/10 text-green-700 dark:text-green-400'}">${r.status}</span>
+          <span class="text-muted-foreground text-xs">
+            ${(r.started_at || '').slice(0, 16).replace('T', ' ')} UTC · ${r.trigger}</span>
+          <span class="text-foreground text-xs ml-auto">
+            ${r.subs_scanned} subs · ${r.posts_seen} seen · ${r.posts_new} new
+            · ${r.posts_matched} matched</span>
+        </div>
+        ${r.error ? `<div class="text-xs text-red-600 dark:text-red-400 mt-1.5">${esc(r.error)}</div>` : ''}
+        ${errs.length ? `<details class="mt-1.5"><summary class="text-xs
+          text-muted-foreground cursor-pointer">${errs.length} subreddit(s) couldn't be
+          read</summary><ul class="text-xs text-muted-foreground pl-4 mt-1 list-disc">
+          ${errs.map(e => `<li>${esc(e.error)}</li>`).join('')}</ul></details>` : ''}
+      </div>`;
+    }).join('') : '<div class="text-sm text-muted-foreground">No scans yet.</div>';
+  }
+
+  // ── subreddits ─────────────────────────────────────────────────────
+  function pill(v, label) {
+    if (v === null || v === undefined)
+      return `<span class="text-xs px-1.5 py-0.5 rounded bg-muted text-muted-foreground"
+               title="Not audited yet">${label} —</span>`;
+    const c = v >= 0.7 ? 'bg-green-500/10 text-green-700 dark:text-green-400'
+            : v >= 0.4 ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
+                       : 'bg-orange-500/10 text-orange-600 dark:text-orange-400';
+    return `<span class="text-xs px-1.5 py-0.5 rounded ${c}">${label} ${Math.round(v * 100)}%</span>`;
+  }
+
+  function renderSubs() {
+    const sort = qs('subSort').value, filt = qs('subFilter').value;
+    let list = [...subsCache];
+    if (filt === 'enabled') list = list.filter(s => s.enabled);
+    if (filt === 'unaudited') list = list.filter(s => s.topical_fit === null);
+    const key = {combined: 'combined', fit: 'topical_fit', promo: 'promo_friendly'}[sort];
+    list.sort(key ? (a, b) => (b[key] ?? -1) - (a[key] ?? -1)
+                  : (a, b) => a.name.localeCompare(b.name));
+    const empty = qs('subsEmpty');
+    if (empty) empty.classList.toggle('hidden', subsCache.length > 0);
+    qs('subsList').innerHTML = list.length ? list.map(s => `
+      <div class="bg-card border border-border rounded-lg p-3 flex items-start gap-3">
+        <input type="checkbox" ${s.enabled ? 'checked' : ''} class="mt-1"
+               onchange="RO.toggleSub('${s.id}', this.checked)"
+               title="Include this subreddit in scans">
+        <div class="min-w-0 flex-1">
+          <div class="flex items-center gap-2 flex-wrap">
+            <a href="https://www.reddit.com/r/${esc(s.name)}/" target="_blank" rel="noopener"
+               class="text-sm font-medium text-foreground hover:underline">r/${esc(s.name)}</a>
+            ${pill(s.topical_fit, 'fit')} ${pill(s.promo_friendly, 'promo')}
+            <span class="text-xs text-muted-foreground">
+              ${s.subscribers ? s.subscribers.toLocaleString() + ' members'
+                              : 'member count unavailable'}</span>
+          </div>
+          ${s.public_description ? `<p class="text-xs text-muted-foreground mt-1
+            line-clamp-2">${esc(s.public_description)}</p>` : ''}
+          ${s.audit && s.audit.fit_why ? `<p class="text-xs text-muted-foreground mt-1">
+            <b>Fit:</b> ${esc(s.audit.fit_why)}</p>` : ''}
+          ${s.audit && (s.audit.promo_reasons || []).length ? `<p class="text-xs
+            text-muted-foreground mt-0.5"><b>Promo:</b>
+            ${esc((s.audit.promo_reasons || []).join('; '))}</p>` : ''}
+          ${s.audit_error ? `<p class="text-xs text-orange-600 dark:text-orange-400 mt-1">
+            ${esc(s.audit_error)}</p>` : ''}
+        </div>
+        <div class="flex flex-col gap-1">
+          <button onclick="RO.auditSub('${s.id}')" id="aud-${s.id}"
+            class="text-xs px-2 py-1 rounded border border-border hover:border-ring
+                   text-foreground whitespace-nowrap">Re-audit</button>
+          <button onclick="RO.delSub('${s.id}', '${esc(s.name)}')"
+            class="text-xs px-2 py-1 rounded border border-border hover:border-red-400
+                   text-red-600 dark:text-red-400">Remove</button>
+        </div>
+      </div>`).join('')
+      : '<div class="text-sm text-muted-foreground">Nothing matches that filter.</div>';
+
+    const f = qs('fSub');
+    if (f) {
+      const cur = f.value;
+      f.innerHTML = '<option value="">All subreddits</option>' +
+        [...subsCache].sort((a, b) => a.name.localeCompare(b.name))
+          .map(s => `<option value="${esc(s.name)}">r/${esc(s.name)}</option>`).join('');
+      f.value = cur;
+    }
+  }
+
+  async function reloadSubs() {
+    const d = await jget(U.subs + '?p=' + encodeURIComponent(P));
+    subsCache = d.subreddits || [];
+    renderSubs();
+  }
+
+  async function addSub() {
+    const v = qs('newSub').value.trim();
+    if (!v) return;
+    const btn = qs('addSubBtn'); btn.disabled = true; btn.textContent = 'Auditing…';
+    const r = await jpost(U.subs, {p: P, name: v});
+    btn.disabled = false; btn.textContent = 'Add';
+    if (r.error) { flash(r.error); return; }
+    qs('newSub').value = '';
+    reloadSubs(); refreshStats();
+  }
+
+  async function toggleSub(sid, on) {
+    await jpost(U.subPatch(sid), {enabled: on});
+    const s = subsCache.find(x => x.id === sid);
+    if (s) s.enabled = on;
+    refreshStats();
+  }
+
+  async function delSub(sid, name) {
+    if (!confirm(`Stop monitoring r/${name}?`)) return;
+    await jpost(U.subDel(sid), {});
+    reloadSubs(); refreshStats();
+  }
+
+  async function auditSub(sid) {
+    const btn = qs('aud-' + sid); btn.disabled = true; btn.textContent = '…';
+    const r = await jpost(U.subAudit(sid), {});
+    poll(r.job_id, () => { reloadSubs(); }, null);
+  }
+
+  // ── discover ───────────────────────────────────────────────────────
+  async function discover() {
+    const btn = qs('discBtn'); btn.disabled = true; btn.textContent = 'Searching…';
+    qs('discResults').innerHTML = '';
+    qs('discRecBar').classList.add('hidden');
+    const r = await jpost(U.discover, {p: P, n: parseInt(qs('discN').value, 10)});
+    if (r.error) { btn.disabled = false; btn.textContent = '🚀 Find subreddits';
+                   qs('discStatus').textContent = r.error; return; }
+    poll(r.job_id, (j) => {
+      btn.disabled = false; btn.textContent = '🚀 Find subreddits';
+      qs('discStatus').textContent = j.status === 'failed' ? ('Failed: ' + (j.error || '')) : '';
+      if (j.result) renderDiscover(j.result.candidates || []);
+    }, (j) => { qs('discStatus').textContent = j.progress; });
+  }
+
+  function renderDiscover(cands) {
+    discCands = cands;
+    const rec = cands.filter(c => (c.topical_fit || 0) >= 0.7 && (c.promo_friendly || 0) >= 0.5);
+    if (rec.length) {
+      qs('discRecBar').classList.remove('hidden');
+      qs('discRecText').innerHTML = `<b>${rec.length}</b> candidate(s) scored well `
+        + `enough to recommend (fit ≥70%, promo ≥50%) — pre-selected below.`;
+    }
+    qs('discResults').innerHTML = cands.length ? cands.map((c, i) => {
+      const recommended = (c.topical_fit || 0) >= 0.7 && (c.promo_friendly || 0) >= 0.5;
+      if (c.unreachable) {
+        return `<div class="bg-card border border-border rounded-lg p-3 opacity-60">
+          <div class="text-sm text-foreground">r/${esc(c.name)}</div>
+          <div class="text-xs text-orange-600 dark:text-orange-400">${esc(c.fit_why)}</div>
+        </div>`;
+      }
+      return `
+      <div class="bg-card border border-border rounded-lg p-3 flex items-start gap-3">
+        <input type="checkbox" class="mt-1 discBox" data-name="${esc(c.name)}"
+               ${recommended ? 'checked' : ''}>
+        <div class="min-w-0 flex-1">
+          <div class="flex items-center gap-2 flex-wrap">
+            <a href="https://www.reddit.com/r/${esc(c.name)}/" target="_blank" rel="noopener"
+               class="text-sm font-medium text-foreground hover:underline">r/${esc(c.name)}</a>
+            <span class="text-xs px-1.5 py-0.5 rounded bg-muted text-foreground">
+              overall ${Math.round((c.combined || 0) * 100)}%</span>
+            ${pill(c.topical_fit, 'fit')} ${pill(c.promo_friendly, 'promo')}
+            ${c.audience_tag ? `<span class="text-xs text-muted-foreground">
+              ${esc(c.audience_tag)}</span>` : ''}
+          </div>
+          ${c.why ? `<p class="text-xs text-muted-foreground mt-1">${esc(c.why)}</p>` : ''}
+          ${c.fit_why ? `<p class="text-xs text-muted-foreground mt-0.5">
+            <b>Fit:</b> ${esc(c.fit_why)}</p>` : ''}
+          ${(c.promo_reasons || []).length ? `<p class="text-xs text-muted-foreground mt-0.5">
+            <b>Promo:</b> ${esc((c.promo_reasons || []).join('; '))}</p>` : ''}
+        </div>
+      </div>`;
+    }).join('') : '<div class="text-sm text-muted-foreground">No candidates returned.</div>';
+  }
+
+  async function bulkAdd() {
+    const names = [...document.querySelectorAll('.discBox')]
+      .filter(b => b.checked).map(b => b.dataset.name);
+    if (!names.length) { flash('Nothing selected'); return; }
+    const btn = qs('discAddBtn'); btn.disabled = true; btn.textContent = 'Adding…';
+    const r = await jpost(U.subsBulk, {p: P, names});
+    btn.disabled = false; btn.textContent = 'Add selected';
+    flash(`Added ${(r.added || []).length} subreddit(s) — audit them on the Subreddits tab`);
+    reloadSubs(); refreshStats();
+  }
+
+  // ── notifications ──────────────────────────────────────────────────
+  async function saveNotify() {
+    const btn = qs('nSaveBtn'); btn.disabled = true;
+    const r = await jpost(U.notify, {
+      enabled: qs('nEnabled').checked, matched_only: qs('nMatched').checked,
+      email_override: qs('nOverride').value.trim()});
+    btn.disabled = false;
+    qs('nStatus').textContent = r.error ? r.error : 'Saved';
+    setTimeout(() => qs('nStatus').textContent = '', 3000);
+  }
+
+  async function testNotify() {
+    const btn = qs('nTestBtn'); btn.disabled = true; btn.textContent = 'Sending…';
+    qs('nStatus').textContent = '';
+    const r = await jpost(U.notifyTest, {});
+    btn.disabled = false; btn.textContent = 'Send test email';
+    qs('nStatus').textContent = r.error ? r.error : ('Sent to ' + r.to);
+  }
+
+  // ── profiles ───────────────────────────────────────────────────────
+  function switchProfile(id) { window.location.search = '?p=' + encodeURIComponent(id); }
+
+  function renderTopics() {
+    qs('pTopicCount').textContent = profTopics.length
+      ? profTopics.length + ' topic(s)' : 'none yet — generate them';
+    qs('pTopicList').innerHTML = profTopics.length ? profTopics.map((t, i) => `
+      <div class="flex items-start gap-2 text-xs bg-muted rounded p-1.5">
+        <span>${esc(t.emoji || '•')}</span>
+        <span class="flex-1">
+          <span class="text-foreground font-medium">${esc(t.label || t.id)}</span>
+          <span class="block text-muted-foreground">${esc(t.pitch || '')}</span>
+        </span>
+        <button type="button" onclick="RO.dropTopic(${i})"
+          class="text-muted-foreground hover:text-red-500" title="Remove">✕</button>
+      </div>`).join('')
+      : `<div class="text-xs text-muted-foreground">A profile with no topics can't
+         score anything. Fill in the brief, then generate.</div>`;
+  }
+
+  function dropTopic(i) { profTopics.splice(i, 1); renderTopics(); }
+
+  async function genTopics() {
+    const brief = qs('pBrief').value.trim();
+    const product = qs('pProduct').value.trim() || qs('pName').value.trim();
+    if (brief.length < 20 || !product) {
+      const e = qs('profErr'); e.classList.remove('hidden');
+      e.textContent = 'Fill in the product name and a brief first — topics are '
+        + 'generated from them.'; return;
+    }
+    qs('profErr').classList.add('hidden');
+    const btn = qs('pTopicBtn'); btn.disabled = true; btn.textContent = 'Thinking…';
+    const r = await jpost(U.suggestTopics, {product_name: product, brief,
+      audience: qs('pAudience').value.trim(), n: 8});
+    btn.disabled = false; btn.textContent = '✨ Generate from the brief';
+    if (r.error) { const e = qs('profErr'); e.classList.remove('hidden');
+                   e.textContent = r.error; return; }
+    profTopics = r.topics || [];
+    renderTopics();
+  }
+
+  async function openProfile() {
+    profMode = 'edit';
+    const d = await jget(U.profiles);
+    const p = (d.profiles || []).find(x => x.id === P);
+    if (!p) return;
+    qs('profTitle').textContent = 'Edit watch profile';
+    qs('pName').value = p.name || ''; qs('pProduct').value = p.product_name || '';
+    qs('pUrl').value = p.product_url || ''; qs('pBrief').value = p.brief || '';
+    qs('pAudience').value = p.audience || ''; qs('pBrand').value = p.brand_regex || '';
+    qs('pFloor').value = p.relevance_floor; qs('pPerSub').value = p.max_posts_per_sub;
+    qs('pLookback').value = p.lookback_hours; qs('pRetention').value = p.retention_days;
+    qs('pBriefAge').textContent = p.brief_updated_at
+      ? 'Brief last updated ' + p.brief_updated_at.slice(0, 10) : '';
+    profTopics = JSON.parse(JSON.stringify(p.topics || []));
+    renderTopics();
+    qs('pSubsWrap').classList.add('hidden');
+    qs('pSubsCount').textContent = subsCache.length
+      ? `${subsCache.length} monitored` : 'none yet — this profile can\'t scan';
+    qs('profDel').classList.remove('hidden');
+    qs('profErr').classList.add('hidden');
+    qs('profModal').classList.remove('hidden');
+  }
+
+  function newProfile() {
+    profMode = 'new';
+    qs('profTitle').textContent = 'New watch profile';
+    ['pName','pProduct','pUrl','pBrief','pAudience','pBrand','pSubs']
+      .forEach(i => qs(i).value = '');
+    qs('pFloor').value = 0.5; qs('pPerSub').value = 30;
+    qs('pLookback').value = 26; qs('pRetention').value = 14;
+    qs('pBriefAge').textContent = '';
+    profTopics = [];
+    renderTopics();
+    qs('pSubsWrap').classList.remove('hidden');
+    qs('pSubsCount').textContent = '';
+    qs('profDel').classList.add('hidden');
+    qs('profErr').classList.add('hidden');
+    qs('profModal').classList.remove('hidden');
+  }
+
+  const closeProfile = () => qs('profModal').classList.add('hidden');
+
+  async function saveProfile() {
+    const btn = qs('profSave'); btn.disabled = true;
+    const body = {
+      name: qs('pName').value.trim(), product_name: qs('pProduct').value.trim(),
+      product_url: qs('pUrl').value.trim(), brief: qs('pBrief').value.trim(),
+      audience: qs('pAudience').value.trim(), brand_regex: qs('pBrand').value.trim(),
+      relevance_floor: parseFloat(qs('pFloor').value),
+      max_posts_per_sub: parseInt(qs('pPerSub').value, 10),
+      lookback_hours: parseInt(qs('pLookback').value, 10),
+      retention_days: parseInt(qs('pRetention').value, 10),
+    };
+    body.topics = profTopics;
+    if (profMode === 'new') {
+      body.subreddits = qs('pSubs').value.split(',').map(s => s.trim()).filter(Boolean);
+      if (!body.subreddits.length &&
+          !confirm('No subreddits yet — this profile can\'t scan until it has some.'
+                   + '\n\nCreate it anyway? You can add them on the Subreddits tab, '
+                   + 'or let Discover propose some.')) {
+        qs('profSave').disabled = false; return;
+      }
+    }
+    const r = profMode === 'new' ? await jpost(U.profiles, body)
+                                 : await jpost(U.profUpd(P), body);
+    btn.disabled = false;
+    if (r.error || r.detail) {
+      const e = qs('profErr'); e.classList.remove('hidden');
+      e.textContent = r.error || JSON.stringify(r.detail).slice(0, 300); return;
+    }
+    window.location.search = '?p=' + encodeURIComponent(r.id || P);
+  }
+
+  async function deleteProfile() {
+    if (!confirm('Delete this watch profile?\n\nIts posts, subreddits, drafts and '
+                 + 'scan history go with it. This cannot be undone.')) return;
+    const r = await jpost(U.profDel(P), {});
+    if (r.error) { flash(r.error); return; }
+    window.location.search = '';
+  }
+
+  // ── deep link from the digest email ────────────────────────────────
+  function focusCard() {
+    const card = document.getElementById('card-' + FOCUS)
+      || [...document.querySelectorAll('[id^=card-]')].find(
+           el => el.innerHTML.includes(FOCUS));
+    if (!card) return;
+    card.scrollIntoView({behavior: 'smooth', block: 'center'});
+    card.classList.add('ring-2', 'ring-orange-400');
+    setTimeout(() => card.classList.remove('ring-2', 'ring-orange-400'), 4000);
+    if (AUTOGEN) {
+      const id = card.id.replace('card-', '');
+      if (!card.querySelector('[id^=draft-]')) genDrafts(id);
+    }
+  }
+
+  if (P) { renderSubs(); loadFeed(); }
+
+  return {tab, loadFeed, debounced, scan, genDrafts, refine, copy, toggleSel,
+          selectAllVisible, clearSel, bulkDelete, del, dismiss, openLog, closeLog,
+          saveLog, openSweep, closeSweep, sweepPreview, doSweep, addSub, toggleSub,
+          delSub, auditSub, renderSubs, discover, bulkAdd, saveNotify, testNotify,
+          switchProfile, openProfile, newProfile, closeProfile, saveProfile,
+          deleteProfile, genTopics, dropTopic, gotoTab};
+})();
+</script>
+{% endblock %}
